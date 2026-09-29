@@ -1,0 +1,558 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenClaw Router</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f6f7f9; --panel: #ffffff; --ink: #1b1f24; --muted: #5b6570;
+    --line: #dfe3e8; --accent: #2f6f4f; --warn: #a8691a; --bad: #b3382f;
+    --chart-a: #2f6f4f; --chart-b: #3a6ea5; --chart-c: #a8691a; --grid: #e6e9ee;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14171b; --panel: #1c2127; --ink: #e8edf2; --muted: #98a4b1;
+      --line: #2c333b; --accent: #63c292; --warn: #d9a441; --bad: #e2776c;
+      --chart-a: #63c292; --chart-b: #6fa8dc; --chart-c: #d9a441; --grid: #2c333b;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px 20px 28px; background: var(--bg); color: var(--ink);
+    font: 13px/1.45 ui-sans-serif, system-ui, "Segoe UI", Roboto, Arial, sans-serif; }
+  h1 { font-size: 17px; margin: 0; letter-spacing: .2px; }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .7px; color: var(--muted); margin: 0 0 8px; }
+  header { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 14px; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: 999px;
+    border: 1px solid var(--line); background: var(--panel); font-size: 12px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .ok .dot { background: var(--accent); } .bad .dot { background: var(--bad); }
+  .controls { margin-left: auto; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  select, button { font: inherit; color: inherit; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 6px; padding: 4px 8px; }
+  button { cursor: pointer; } button:hover { border-color: var(--muted); }
+  label { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); }
+  .date-controls { display: none; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .date-controls input { font: inherit; color: inherit; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; }
+  .cost-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); gap: 8px; margin-bottom: 14px; }
+  .cost-chip { background: var(--panel); border: 1px solid var(--line); border-radius: 7px; padding: 8px 10px; }
+  .cost-chip small { display: block; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; }
+  .snapshot-panel { margin-bottom: 14px; }
+  .snapshot-context { white-space: pre-wrap; }
+  .snapshot-edit { display: none; width: 100%; min-height: 72px; margin: 4px 0 10px; font: inherit; }
+  #banner { display: none; margin-bottom: 12px; padding: 8px 10px; border: 1px solid var(--bad);
+    border-radius: 6px; background: var(--panel); color: var(--bad); }
+  .grid { display: grid; gap: 10px; }
+  .cards { grid-template-columns: repeat(auto-fit, minmax(158px, 1fr)); margin-bottom: 14px; }
+  .card, .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+  .card { padding: 9px 11px; }
+  .card .label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .5px; }
+  .card .value { font-size: 19px; font-variant-numeric: tabular-nums; margin-top: 2px; }
+  .card .sub { color: var(--muted); font-size: 11px; }
+  .cols { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); margin-bottom: 14px; }
+  .panel { padding: 12px; }
+  .panel.wide { grid-column: 1 / -1; }
+  dl { margin: 0; display: grid; grid-template-columns: 1fr auto auto; gap: 3px 12px; }
+  dt { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+  dd.pct { color: var(--muted); width: 5em; }
+  .charts { grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); margin-bottom: 14px; }
+  .chart { position: relative; height: 190px; }
+  table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .4px;
+    position: sticky; top: 0; background: var(--panel); }
+  tbody tr:hover { background: rgba(127,127,127,.08); }
+  .yes { color: var(--accent); } .no { color: var(--bad); }
+  .scroll { max-height: 420px; overflow: auto; }
+  .empty { color: var(--muted); padding: 10px 0; }
+  footer { color: var(--muted); font-size: 11px; margin-top: 10px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>OpenClaw Router</h1>
+  <span id="health" class="pill"><span class="dot"></span><span id="health-text">checking</span></span>
+  <span id="volume" class="pill">–</span>
+  <div class="controls">
+    <label>Scope
+      <select id="scope">
+        <option value="recent_25">Recent 25</option>
+        <option value="recent_50">Recent 50</option>
+        <option value="recent_100" selected>Recent 100</option>
+        <option value="recent_500">Recent 500</option>
+        <option value="today">Today (router local time)</option>
+        <option value="last_24_hours">Last 24 hours</option>
+        <option value="last_7_days">Last 7 days</option>
+        <option value="custom">Custom date/time range</option>
+        <option value="since_snapshot">Since snapshot</option>
+      </select>
+    </label>
+    <span id="custom-controls" class="date-controls">
+      <label>Start (local) <input id="range-start" type="datetime-local"></label>
+      <label>End (local) <input id="range-end" type="datetime-local"></label>
+    </span>
+    <label id="snapshot-select-wrap" style="display:none">Snapshot <select id="snapshot-select"></select></label>
+    <label>Auto-refresh <input type="checkbox" id="auto" checked></label>
+    <button id="refresh" type="button">Refresh</button>
+    <span id="updated" class="pill">never</span>
+  </div>
+</header>
+
+<div id="banner"></div>
+
+<section id="snapshot-context-panel" class="panel snapshot-panel" hidden>
+  <details open>
+    <summary>Snapshot Context <span id="snapshot-since"></span></summary>
+    <div id="snapshot-context-display" class="snapshot-context"></div>
+    <button id="snapshot-edit-button" type="button">Edit context</button>
+    <div id="snapshot-context-editor" hidden>
+      <label>Summary <textarea id="edit-summary" class="snapshot-edit"></textarea></label>
+      <label>Goal <textarea id="edit-goal" class="snapshot-edit"></textarea></label>
+      <label>Configuration / context (one item per line) <textarea id="edit-context" class="snapshot-edit"></textarea></label>
+      <label>Benchmark findings (one item per line) <textarea id="edit-findings" class="snapshot-edit"></textarea></label>
+      <label>Notes <textarea id="edit-notes" class="snapshot-edit"></textarea></label>
+      <button id="snapshot-save-button" type="button">Save context</button>
+      <button id="snapshot-cancel-button" type="button">Cancel</button>
+    </div>
+  </details>
+</section>
+
+<section class="cost-strip" id="cost-strip" aria-label="Cost in selected scope"></section>
+<section class="panel snapshot-panel" id="cost-breakdown"></section>
+
+<div class="grid cards" id="cards"></div>
+
+<div class="grid cols">
+  <section class="panel">
+    <h2>Routing</h2>
+    <dl id="tiers"></dl>
+    <h2 style="margin-top:14px">Selection mode</h2>
+    <dl id="mode"></dl>
+    <h2 style="margin-top:14px">Routing reasons</h2>
+    <dl id="reasons"></dl>
+    <h2 style="margin-top:14px">Requested-tier overrides / mismatches</h2>
+    <dl id="mismatches"></dl>
+  </section>
+  <section class="panel">
+    <h2>Models</h2>
+    <dl id="models"></dl>
+    <h2 style="margin-top:14px">Attempt / fallback sequences</h2>
+    <dl id="sequences"></dl>
+    <h2 style="margin-top:14px">Operations by tier</h2>
+    <dl id="tier-ops"></dl>
+  </section>
+</div>
+
+<div class="grid charts">
+  <section class="panel"><h2>Tier distribution</h2><div class="chart"><canvas id="c-tiers"></canvas></div></section>
+  <section class="panel"><h2>Routing reasons</h2><div class="chart"><canvas id="c-reasons"></canvas></div></section>
+  <section class="panel"><h2>Latency over requests in selected scope (ms)</h2><div class="chart"><canvas id="c-latency"></canvas></div></section>
+  <section class="panel"><h2>Cost over time in selected scope</h2><div class="chart"><canvas id="c-cost"></canvas></div></section>
+  <section class="panel"><h2>Cumulative cost in selected scope</h2><div class="chart"><canvas id="c-cumulative-cost"></canvas></div></section>
+  <section class="panel"><h2>Success / error trend</h2><div class="chart"><canvas id="c-trend"></canvas></div></section>
+</div>
+
+<section class="panel wide">
+  <h2>Requests in selected scope</h2>
+  <div class="scroll">
+    <table>
+      <thead><tr>
+        <th>Timestamp</th><th>Req tier</th><th>Sel tier</th><th>Mode</th><th>Reason</th><th>Actual model</th>
+        <th>Latency</th><th>Cost</th><th>HTTP</th><th>OK</th><th>FB</th><th>Budget out</th>
+      </tr></thead>
+      <tbody id="recent-body"></tbody>
+    </table>
+    <div id="recent-empty" class="empty">No telemetry rows yet.</div>
+  </div>
+  <footer>Read-only view of router_telemetry.db. Prompt and response content is never stored or served by this endpoint.</footer>
+</section>
+
+<script src="/dashboard/vendor/chart.umd.min.js"></script>
+<script>
+(() => {
+  "use strict";
+  const AUTO_MS = 15000;
+  const state = { timer: null, charts: {}, snapshots: [], activeSnapshot: null, snapshotRequestCount: 0 };
+  const el = (id) => document.getElementById(id);
+  const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+  const num = (value, digits = 2) =>
+    value === null || value === undefined || Number.isNaN(Number(value)) ? "–" : Number(value).toFixed(digits);
+  const money = (value) =>
+    value === null || value === undefined ? "–" : Number(value).toLocaleString("en-US", { maximumFractionDigits: 8 });
+  const boolText = (value) => (Number(value) === 1 ? "yes" : "no");
+
+  function showBanner(message) {
+    const banner = el("banner");
+    banner.textContent = message || "";
+    banner.style.display = message ? "block" : "none";
+  }
+
+  function row(label, value, percent) {
+    const dt = document.createElement("dt"); dt.textContent = label; dt.title = label;
+    const dd = document.createElement("dd"); dd.textContent = value;
+    const tail = document.createElement("dd"); tail.className = "pct"; tail.textContent = percent ?? "";
+    return [dt, dd, tail];
+  }
+
+  function fill(target, entries) {
+    const node = el(target);
+    node.replaceChildren();
+    if (!entries.length) { const empty = document.createElement("div"); empty.className = "empty"; empty.textContent = "No data in window."; node.append(empty); return; }
+    entries.flat().forEach((child) => node.append(child));
+  }
+
+  function renderCards(cards) {
+    const defs = [
+      ["Total requests", num(cards.total_requests, 0), `${cards.successful_requests ?? 0} ok / ${cards.failed_requests ?? 0} failed`],
+      ["Success rate", cards.total_requests ? num(cards.success_rate_percent) + "%" : "–", `${cards.successful_requests ?? 0} of ${cards.total_requests ?? 0}`],
+      ["Average latency", cards.average_latency_ms === null ? "–" : num(cards.average_latency_ms) + " ms", `${cards.latency_samples ?? 0} samples`],
+      ["Median latency", cards.median_latency_ms === null ? "–" : num(cards.median_latency_ms) + " ms", "window"],
+      ["P95 latency", cards.p95_latency_ms === null ? "–" : num(cards.p95_latency_ms) + " ms", "window"],
+      ["Total est. cost", money(cards.total_estimated_cost), `${cards.requests_with_cost ?? 0} priced`],
+      ["Avg cost / request", money(cards.average_cost_per_request), "over all requests"],
+      ["Fallback rate", cards.total_requests ? num(cards.fallback_rate_percent) + "%" : "–", `${cards.fallback_requests ?? 0} requests`],
+      ["Budget exhaustion", cards.total_requests ? num(cards.budget_exhaustion_rate_percent) + "%" : "–", `${cards.budget_exhausted_requests ?? 0} requests`],
+    ];
+    el("cards").replaceChildren(...defs.map(([label, value, sub]) => {
+      const card = document.createElement("div"); card.className = "card";
+      const l = document.createElement("div"); l.className = "label"; l.textContent = label;
+      const v = document.createElement("div"); v.className = "value"; v.textContent = value;
+      const s = document.createElement("div"); s.className = "sub"; s.textContent = sub;
+      card.append(l, v, s); return card;
+    }));
+  }
+
+  function renderCost(cost) {
+    const tiers = cost.total_cost_by_tier || {};
+    const values = [
+      ["Total cost", cost.total_cost],
+      ["Avg cost / request", cost.average_cost_per_request],
+      ["FAST cost", tiers.fast?.total_cost ?? 0],
+      ["BALANCED cost", tiers.balanced?.total_cost ?? 0],
+      ["DEEP cost", tiers.deep?.total_cost ?? 0],
+    ];
+    el("cost-strip").replaceChildren(...values.map(([label, value]) => {
+      const chip = document.createElement("div"); chip.className = "cost-chip";
+      const name = document.createElement("small"); name.textContent = label;
+      const amount = document.createElement("strong"); amount.textContent = money(value);
+      chip.append(name, amount); return chip;
+    }));
+    const sections = [
+      ["Cost by selected tier", Object.entries(tiers).map(([tier, v]) => `${tier.toUpperCase()}: ${money(v.total_cost)} · avg ${money(v.average_cost_per_request)} · ${num(v.percent_of_total)}%`)],
+      ["Cost by actual model", Object.entries(cost.total_cost_by_model || {}).map(([model, amount]) => `${model}: ${money(amount)}`)],
+    ];
+    const existing = el("cost-breakdown");
+    existing.replaceChildren();
+    sections.forEach(([title, lines]) => {
+      const block = document.createElement("div");
+      const heading = document.createElement("h2"); heading.textContent = title;
+      const body = document.createElement("div"); body.className = "snapshot-context";
+      body.textContent = lines.length ? lines.join("\n") : "No cost data in this scope.";
+      block.append(heading, body); existing.append(block);
+    });
+  }
+
+  function formatSnapshotDate(value) {
+    const date = value ? new Date(value) : null;
+    return date && !Number.isNaN(date.valueOf()) ? date.toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" }) : "unknown";
+  }
+
+  function renderSnapshotContext(snapshot, requestCount) {
+    state.activeSnapshot = snapshot || null;
+    state.snapshotRequestCount = requestCount ?? (snapshot ? state.snapshotRequestCount : 0);
+    const panel = el("snapshot-context-panel");
+    panel.hidden = !snapshot;
+    if (!snapshot) return;
+    el("snapshot-since").textContent = `Since: ${snapshot.name} · Started: ${formatSnapshotDate(snapshot.created_at)} · Requests since snapshot: ${state.snapshotRequestCount}`;
+    const display = el("snapshot-context-display"); display.replaceChildren();
+    const fields = [
+      ["Summary", snapshot.summary], ["Goal", snapshot.goal],
+      ["Configuration / context", snapshot.context],
+      ["Benchmark findings", snapshot.benchmark_findings], ["Notes", snapshot.notes],
+    ];
+    for (const [label, value] of fields) {
+      const section = document.createElement("p");
+      const strong = document.createElement("strong"); strong.textContent = `${label}: `;
+      const text = document.createElement("span"); text.textContent = Array.isArray(value) ? value.map((item) => `• ${item}`).join("\n") : (value || "–");
+      section.append(strong, text); display.append(section);
+    }
+  }
+
+  function fillSnapshotEditor(snapshot) {
+    el("edit-summary").value = snapshot.summary || "";
+    el("edit-goal").value = snapshot.goal || "";
+    el("edit-context").value = (snapshot.context || []).join("\n");
+    el("edit-findings").value = (snapshot.benchmark_findings || []).join("\n");
+    el("edit-notes").value = snapshot.notes || "";
+  }
+
+  function renderRouting(summary) {
+    const routing = summary.routing || {};
+    const tiers = routing.routing_tier_counts || {};
+    fill("tiers", Object.entries(tiers).map(([tier, values]) =>
+      row(tier.toUpperCase(), String(values.count ?? 0), num(values.percent ?? 0) + "%")));
+
+    const mode = routing.automatic_vs_explicit || {};
+    const total = summary.window?.returned || 0;
+    fill("mode", [
+      row("automatic", String(mode.automatic ?? 0), total ? num((mode.automatic ?? 0) * 100 / total) + "%" : ""),
+      row("explicit", String(mode.explicit ?? 0), total ? num((mode.explicit ?? 0) * 100 / total) + "%" : ""),
+      row("unknown / legacy", String(mode.unknown_or_legacy ?? 0), ""),
+    ]);
+
+    const reasons = Object.entries(routing.routing_reason_distribution || {}).sort((a, b) => b[1] - a[1]);
+    fill("reasons", reasons.map(([reason, count]) =>
+      row(reason, String(count), total ? num(count * 100 / total) + "%" : "")));
+
+    const mismatches = routing.requested_tier_mismatches || {};
+    const pairs = Object.entries(mismatches.pairs || {});
+    fill("mismatches", [row("mismatch count", String(mismatches.count ?? 0), ""),
+      ...pairs.map(([pair, count]) => row(pair, String(count), "")),
+      ...Object.entries(routing.explicit_selections_by_tier || {}).map(([tier, count]) =>
+        row(`explicit -> ${tier}`, String(count), ""))]);
+
+    const models = Object.entries(routing.actual_model_distribution || {}).sort((a, b) => b[1] - a[1]);
+    fill("models", models.map(([model, count]) => row(model, String(count), total ? num(count * 100 / total) + "%" : "")));
+
+    const sequences = Object.entries(routing.attempted_model_sequences || {}).sort((a, b) => b[1] - a[1]);
+    fill("sequences", sequences.map(([sequence, count]) => row(sequence, String(count), total ? num(count * 100 / total) + "%" : "")));
+
+    const ops = routing.tier_operations || {};
+    fill("tier-ops", Object.entries(ops).map(([tier, values]) =>
+      row(`${tier.toUpperCase()} avg / p95`,
+        `${num(values.average_latency_ms)} / ${num(values.p95_latency_ms)} ms`,
+        `fb ${num(values.fallback_rate_percent)}%`)));
+  }
+
+  function chartConfig(id, config) {
+    const canvas = el(id);
+    if (!window.Chart || !canvas) return;
+    if (state.charts[id]) state.charts[id].destroy();
+    config.options = Object.assign({
+      responsive: true, maintainAspectRatio: false, animation: false,
+      plugins: { legend: { labels: { color: css("--ink"), boxWidth: 10, font: { size: 11 } } } },
+    }, config.options || {});
+    state.charts[id] = new Chart(canvas, config);
+  }
+
+  const palette = () => [css("--chart-a"), css("--chart-b"), css("--chart-c"), css("--warn"), css("--bad")];
+
+  function renderCharts(summary, requests) {
+    const routing = summary.routing || {};
+    const tierEntries = Object.entries(routing.routing_tier_counts || {}).filter(([, v]) => v.count > 0);
+    chartConfig("c-tiers", {
+      type: "doughnut",
+      data: { labels: tierEntries.map(([t]) => t.toUpperCase()),
+              datasets: [{ data: tierEntries.map(([, v]) => v.count), backgroundColor: palette(), borderWidth: 0 }] },
+      options: { plugins: { legend: { position: "right", labels: { color: css("--ink"), boxWidth: 10 } } } },
+    });
+
+    const reasons = Object.entries(routing.routing_reason_distribution || {}).sort((a, b) => b[1] - a[1]).slice(0, 10);
+    chartConfig("c-reasons", {
+      type: "bar",
+      data: { labels: reasons.map(([r]) => r), datasets: [{ data: reasons.map(([, c]) => c), backgroundColor: css("--chart-b"), borderWidth: 0 }] },
+      options: { indexAxis: "y", plugins: { legend: { display: false } },
+                 scales: { x: { ticks: { color: css("--muted"), precision: 0 }, grid: { color: css("--grid") } },
+                           y: { ticks: { color: css("--ink"), font: { size: 10 } }, grid: { display: false } } } },
+    });
+
+    const labels = requests.map((_, index) => String(index + 1));
+    const line = (id, values, color, digits) => chartConfig(id, {
+      type: "line",
+      data: { labels, datasets: [{ data: values, borderColor: color, backgroundColor: color, borderWidth: 1.5,
+                                    pointRadius: values.length > 120 ? 0 : 2, spanGaps: false, tension: 0 }] },
+      options: { plugins: { legend: { display: false } },
+                 scales: { x: { ticks: { color: css("--muted"), maxTicksLimit: 10 }, grid: { display: false } },
+                           y: { ticks: { color: css("--muted"), callback: (v) => Number(v).toFixed(digits) }, grid: { color: css("--grid") } } } },
+    });
+    line("c-latency", requests.map((r) => (r.latency_ms === null || r.latency_ms === undefined ? null : Number(r.latency_ms))), css("--chart-b"), 0);
+    const costLabels = requests.map((r, index) => r.timestamp || String(index + 1));
+    const scopedCosts = requests.map((r) => (r.estimated_cost === null || r.estimated_cost === undefined ? 0 : Number(r.estimated_cost)));
+    const cumulativeCosts = []; let runningCost = 0;
+    scopedCosts.forEach((value) => { runningCost += value; cumulativeCosts.push(runningCost); });
+    const costLine = (id, values, color) => chartConfig(id, {
+      type: "line", data: { labels: costLabels, datasets: [{ data: values, borderColor: color, backgroundColor: color,
+        borderWidth: 1.5, pointRadius: values.length > 120 ? 0 : 2, spanGaps: false, tension: 0 }] },
+      options: { plugins: { legend: { display: false } }, scales: {
+        x: { ticks: { color: css("--muted"), maxTicksLimit: 10 }, grid: { display: false } },
+        y: { ticks: { color: css("--muted"), callback: (v) => Number(v).toFixed(6) }, grid: { color: css("--grid") } } } },
+    });
+    costLine("c-cost", scopedCosts, css("--chart-a"));
+    costLine("c-cumulative-cost", cumulativeCosts, css("--chart-b"));
+
+    const buckets = 10;
+    const size = Math.max(1, Math.ceil(requests.length / buckets));
+    const successBuckets = [], errorBuckets = [], bucketLabels = [];
+    for (let start = 0; start < requests.length; start += size) {
+      const slice = requests.slice(start, start + size);
+      successBuckets.push(slice.filter((r) => Number(r.success) === 1).length);
+      errorBuckets.push(slice.filter((r) => Number(r.success) !== 1).length);
+      bucketLabels.push(String(start + 1) + "–" + String(start + slice.length));
+    }
+    chartConfig("c-trend", {
+      type: "bar",
+      data: { labels: bucketLabels, datasets: [
+        { label: "success", data: successBuckets, backgroundColor: css("--chart-a"), borderWidth: 0, stack: "s" },
+        { label: "error", data: errorBuckets, backgroundColor: css("--bad"), borderWidth: 0, stack: "s" }] },
+      options: { scales: { x: { stacked: true, ticks: { color: css("--muted"), maxTicksLimit: 10 }, grid: { display: false } },
+                           y: { stacked: true, ticks: { color: css("--muted"), precision: 0 }, grid: { color: css("--grid") } } } },
+    });
+  }
+
+  function renderTable(requests) {
+    const body = el("recent-body");
+    body.replaceChildren();
+    el("recent-empty").style.display = requests.length ? "none" : "block";
+    for (const request of requests) {
+      const tr = document.createElement("tr");
+      const cells = [
+        [request.timestamp ?? "–"],
+        [request.requested_tier ?? "–"],
+        [request.selected_tier ?? "–"],
+        [request.routing_automatic === null || request.routing_automatic === undefined ? "–" : (Number(request.routing_automatic) === 1 ? "automatic" : "explicit")],
+        [request.routing_reason ?? "–"],
+        [request.actual_model ?? "–"],
+        [request.latency_ms === null || request.latency_ms === undefined ? "–" : num(request.latency_ms) + " ms"],
+        [request.estimated_cost === null || request.estimated_cost === undefined ? "–" : money(request.estimated_cost)],
+        [String(request.http_status ?? "–")],
+        [boolText(request.success), Number(request.success) === 1 ? "yes" : "no"],
+        [String(request.fallback_count ?? 0)],
+        [boolText(request.budget_exhausted), Number(request.budget_exhausted) === 1 ? "yes" : "no"],
+      ];
+      cells.forEach(([text, tone], index) => {
+        const td = document.createElement("td");
+        td.textContent = text;
+        if (index === 9 || index === 11) td.className = text === "no" ? "no" : "yes";
+        tr.append(td);
+      });
+      body.append(tr);
+    }
+  }
+
+  function renderHealth(health) {
+    const pill = el("health"), text = el("health-text");
+    const usable = health && health.database_available;
+    pill.className = "pill " + (usable ? "ok" : "bad");
+    text.textContent = usable ? "healthy" : "telemetry unavailable";
+    el("volume").textContent = usable
+      ? `${health.total_telemetry_rows ?? 0} rows stored · newest ${health.newest_timestamp ?? "–"}`
+      : "no database";
+  }
+
+  function currentScopeParams() {
+    const selected = el("scope").value;
+    const params = new URLSearchParams();
+    if (selected.startsWith("recent_")) {
+      params.set("scope", "recent");
+      params.set("recent", selected.slice("recent_".length));
+      params.set("limit", selected.slice("recent_".length));
+    } else {
+      params.set("scope", selected);
+      if (selected === "custom") {
+        const start = el("range-start").value, end = el("range-end").value;
+        params.set("start", start ? new Date(start).toISOString() : "");
+        params.set("end", end ? new Date(end).toISOString() : "");
+      }
+      if (selected === "since_snapshot") params.set("snapshot", el("snapshot-select").value);
+    }
+    return params;
+  }
+
+  async function load() {
+    try {
+      const summaryParams = currentScopeParams();
+      const recentParams = new URLSearchParams(summaryParams);
+      const selected = el("scope").value;
+      if (selected.startsWith("recent_")) {
+        recentParams.set("limit", selected.slice("recent_".length));
+        recentParams.delete("recent");
+      }
+      const [summaryResponse, recentResponse] = await Promise.all([
+        fetch(`/api/dashboard/summary?${summaryParams}`, { headers: { accept: "application/json" } }),
+        fetch(`/api/dashboard/recent?${recentParams}`, { headers: { accept: "application/json" } }),
+      ]);
+      if (!summaryResponse.ok || !recentResponse.ok) {
+        const problem = !summaryResponse.ok ? summaryResponse : recentResponse;
+        const detail = await problem.json().catch(() => ({}));
+        throw new Error(`${problem.status} ${detail.error || "request failed"}`);
+      }
+      const summary = await summaryResponse.json();
+      const payload = await recentResponse.json();
+      showBanner("");
+      renderHealth(summary.health);
+      renderCards(summary.cards);
+      renderCost(summary.cost_analytics || {});
+      renderRouting(summary);
+      renderTable(payload.requests || []);
+      renderCharts(summary, payload.requests || []);
+      if (selected === "since_snapshot") renderSnapshotContext(summary.window?.snapshot, summary.window?.requests_since_snapshot);
+      else renderSnapshotContext(null, 0);
+      el("updated").textContent = new Date().toLocaleTimeString();
+    } catch (error) {
+      showBanner("Dashboard could not read telemetry: " + error.message + ". Model routing is unaffected.");
+      el("health").className = "pill bad";
+      el("health-text").textContent = "degraded";
+    }
+  }
+
+  function setAuto(enabled) {
+    if (state.timer) { clearInterval(state.timer); state.timer = null; }
+    if (enabled) state.timer = setInterval(load, AUTO_MS);
+  }
+
+  function updateScopeControls() {
+    const selected = el("scope").value;
+    el("custom-controls").style.display = selected === "custom" ? "inline-flex" : "none";
+    el("snapshot-select-wrap").style.display = selected === "since_snapshot" ? "inline-flex" : "none";
+  }
+
+  async function loadSnapshots() {
+    const response = await fetch("/api/dashboard/snapshots", { headers: { accept: "application/json" } });
+    if (!response.ok) throw new Error("Could not load snapshots");
+    state.snapshots = (await response.json()).snapshots || [];
+    const select = el("snapshot-select"); select.replaceChildren();
+    state.snapshots.forEach((snapshot) => {
+      const option = document.createElement("option"); option.value = snapshot.name; option.textContent = snapshot.name; select.append(option);
+    });
+  }
+
+  el("scope").addEventListener("change", () => { updateScopeControls(); load(); });
+  el("range-start").addEventListener("change", load);
+  el("range-end").addEventListener("change", load);
+  el("snapshot-select").addEventListener("change", load);
+  el("refresh").addEventListener("click", () => load());
+  el("auto").addEventListener("change", (event) => setAuto(event.target.checked));
+  el("snapshot-edit-button").addEventListener("click", () => {
+    if (!state.activeSnapshot) return;
+    fillSnapshotEditor(state.activeSnapshot);
+    el("snapshot-context-editor").hidden = false;
+  });
+  el("snapshot-cancel-button").addEventListener("click", () => { el("snapshot-context-editor").hidden = true; });
+  el("snapshot-save-button").addEventListener("click", async () => {
+    if (!state.activeSnapshot) return;
+    const snapshot = state.activeSnapshot;
+    const payload = {
+      summary: el("edit-summary").value, goal: el("edit-goal").value,
+      context: el("edit-context").value.split("\n").map((v) => v.trim()).filter(Boolean),
+      benchmark_findings: el("edit-findings").value.split("\n").map((v) => v.trim()).filter(Boolean),
+      notes: el("edit-notes").value,
+    };
+    const response = await fetch(`/api/dashboard/snapshots/${encodeURIComponent(snapshot.name)}/context`, {
+      method: "PATCH", headers: { "content-type": "application/json", accept: "application/json" }, body: JSON.stringify(payload),
+    });
+    if (!response.ok) { showBanner("Snapshot context could not be saved."); return; }
+    const updated = (await response.json()).snapshot;
+    state.snapshots = state.snapshots.map((item) => item.name === updated.name ? updated : item);
+    el("snapshot-context-editor").hidden = true;
+    renderSnapshotContext(updated, state.snapshotRequestCount);
+  });
+  updateScopeControls();
+  setAuto(true);
+  loadSnapshots().then(load).catch((error) => showBanner(error.message));
+})();
+</script>
+</body>
+</html>

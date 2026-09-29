@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+.pytest_cache/
+router_telemetry.db
+router_telemetry.db-*
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+router.log
+*.log
+*-test-*.txt
+.env
+.env.*
+*.key
+credentials*

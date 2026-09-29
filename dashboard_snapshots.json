@@ -1,0 +1,26 @@
+[
+  {
+    "name": "Routing Policy v1",
+    "created_at": "2026-09-29T01:35:00-04:00",
+    "after_telemetry_id": 414,
+    "summary": "Initial production observation period after completing FAST/BALANCED routing benchmarks and implementing deterministic interactive routing.",
+    "goal": "Observe approximately 100 real OpenClaw requests before changing the routing policy.",
+    "context": [
+      "FAST is the default interactive tier.",
+      "FAST uses qwen/qwen3.8-flash with reasoning=none.",
+      "BALANCED uses qwen/qwen3.8-max-0902 with reasoning=minimal.",
+      "BALANCED is used selectively for architecture, security, migrations, complex tradeoffs, financial/data-integrity risk, and explicit deep/thorough analysis.",
+      "DEEP/minimax-m3 is reserved for explicit extended or asynchronous work."
+    ],
+    "benchmark_findings": [
+      "FAST final benchmark average latency: approximately 14.9 seconds.",
+      "BALANCED final benchmark average latency: approximately 50.5 seconds.",
+      "BALANCED blind quality score: 29.27/35.",
+      "FAST blind quality score: 26.53/35.",
+      "BALANCED quality improvement: approximately 10%.",
+      "BALANCED benchmark cost/request was approximately 26x FAST.",
+      "Both tiers succeeded on 15/15 final benchmark prompts."
+    ],
+    "notes": "Historical telemetry before this snapshot contains benchmark/test traffic and should not be treated as real post-policy usage."
+  }
+]

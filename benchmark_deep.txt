@@ -1,0 +1,528 @@
+DEEP benchmark
+endpoint=http://127.0.0.1:6060/v1/chat/completions
+model=deep
+requests=10
+
+===== REQUEST 1 =====
+{
+  "prompt": "Explain SQLite vs PostgreSQL in under 150 words.",
+  "success": true,
+  "status": 200,
+  "latency_ms": 5768.31,
+  "actual_model": "minimax/minimax-m3",
+  "input_tokens": 187,
+  "output_tokens": 260,
+  "estimated_cost": 0.00029261,
+  "fallback_count": 0,
+  "response": {
+    "id": "gen-1790608709-DcBkGzwQ2qRjTAecI4gS",
+    "object": "chat.completion",
+    "created": 1790608709,
+    "model": "minimax/minimax-m3",
+    "provider": "CoreWeave",
+    "system_fingerprint": null,
+    "service_tier": null,
+    "choices": [
+      {
+        "index": 0,
+        "logprobs": null,
+        "finish_reason": "stop",
+        "native_finish_reason": "stop",
+        "message": {
+          "role": "assistant",
+          "content": "**SQLite vs PostgreSQL**\n\n**SQLite** is a lightweight, serverless, file-based database. It's embedded directly into applications, requires no setup, and stores everything in a single file. Ideal for mobile apps, small projects, testing, and read-heavy workloads. Limited concurrency (single writer), no user management, and fewer features. Great for simplicity and portability.\n\n**PostgreSQL** is a full-featured, client-server relational database. It supports advanced features like JSON handling, full-text search, custom types, and complex queries. Handles heavy concurrency (MVCC), scales to large datasets, and offers robust security with user roles. Best for production applications, analytics, and multi-user environments.\n\n**Key differences:**\n- **Setup**: SQLite is zero-config; PostgreSQL requires a server.\n- **Concurrency**: SQLite serializes writes; PostgreSQL handles many simultaneous users.\n- **Scale**: SQLite suits small-to-medium data; PostgreSQL handles terabytes.\n- **Features**: PostgreSQL is far richer; SQLite is simpler but capable.\n\n**Rule of thumb**: Choose SQLite for embedded/local use, PostgreSQL for scalable, production-grade systems.",
+          "refusal": null,
+          "reasoning": "The user wants a concise comparison of SQLite vs PostgreSQL in under 150 words. Let me craft a clear, informative response.",
+          "reasoning_details": [
+            {
+              "type": "reasoning.text",
+              "text": "The user wants a concise comparison of SQLite vs PostgreSQL in under 150 words. Let me craft a clear, informative response.",
+              "format": "unknown",
+              "index": 0
+            }
+          ]
+        }
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 187,
+      "completion_tokens": 260,
+      "total_tokens": 447,
+      "cost": 0.00029261,
+      "is_byok": false,
+      "prompt_tokens_details": {
+        "cached_tokens": 0,
+        "cache_write_tokens": 0,
+        "audio_tokens": 0,
+        "video_tokens": 0
+      },
+      "cost_details": {
+        "upstream_inference_cost": 0.00029261,
+        "upstream_inference_prompt_cost": 4.301e-05,
+        "upstream_inference_completions_cost": 0.0002496
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 31,
+        "image_tokens": 0,
+        "audio_tokens": 0
+      }
+    }
+  }
+}
+
+===== REQUEST 2 =====
+{
+  "prompt": "Explain SSE streaming in under 150 words.",
+  "success": true,
+  "status": 200,
+  "latency_ms": 5057.33,
+  "actual_model": "minimax/minimax-m3",
+  "input_tokens": 185,
+  "output_tokens": 291,
+  "estimated_cost": 0.00032191,
+  "fallback_count": 0,
+  "response": {
+    "id": "gen-1790608715-cUOf0zufUHECKXkGIvzy",
+    "object": "chat.completion",
+    "created": 1790608715,
+    "model": "minimax/minimax-m3",
+    "provider": "CoreWeave",
+    "system_fingerprint": null,
+    "service_tier": null,
+    "choices": [
+      {
+        "index": 0,
+        "logprobs": null,
+        "finish_reason": "stop",
+        "native_finish_reason": "stop",
+        "message": {
+          "role": "assistant",
+          "content": "**SSE (Server-Sent Events) Streaming** is a lightweight, one-way protocol for pushing real-time updates from a server to a client over HTTP.\n\n**How it works:**\n- The client opens a persistent HTTP connection (typically via the `EventSource` API in JavaScript) to a server endpoint.\n- The server keeps the connection open and sends data as discrete `text/event-stream` messages.\n- Each message follows a simple format: `data: <payload>\\n\\n` (double newline terminates an event).\n- Optional fields include `event:` (custom event type), `id:` (for resumption), and `retry:` (reconnect delay).\n\n**Key characteristics:**\n- **Unidirectional** — server-to-client only (unlike WebSockets, which are bidirectional).\n- **Auto-reconnect** — the browser automatically reconnects if the connection drops.\n- **Lightweight** — uses plain HTTP/HTTPS, no special protocol upgrade.\n- **Text-based** — typically JSON or plain text payloads.\n\n**Common use cases:** live notifications, stock tickers, feed updates, progress tracking, and chat messages where the client doesn't need to send frequent data back.\n\nIt's ideal when you only need server-pushed updates and want simplicity over WebSocket's bidirectional complexity.",
+          "refusal": null,
+          "reasoning": "The user wants a concise explanation of SSE (Server-Sent Events) streaming in under 150 words. Let me craft a clear, technical explanation.",
+          "reasoning_details": [
+            {
+              "type": "reasoning.text",
+              "text": "The user wants a concise explanation of SSE (Server-Sent Events) streaming in under 150 words. Let me craft a clear, technical explanation.",
+              "format": "unknown",
+              "index": 0
+            }
+          ]
+        }
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 185,
+      "completion_tokens": 291,
+      "total_tokens": 476,
+      "cost": 0.00032191,
+      "is_byok": false,
+      "prompt_tokens_details": {
+        "cached_tokens": 0,
+        "cache_write_tokens": 0,
+        "audio_tokens": 0,
+        "video_tokens": 0
+      },
+      "cost_details": {
+        "upstream_inference_cost": 0.00032191,
+        "upstream_inference_prompt_cost": 4.255e-05,
+        "upstream_inference_completions_cost": 0.00027936
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 35,
+        "image_tokens": 0,
+        "audio_tokens": 0
+      }
+    }
+  }
+}
+
+===== REQUEST 3 =====
+{
+  "prompt": "Design a simple retry strategy for an API.\nInclude:\n- what errors should be retried\n- what errors should not be retried\n- backoff approach\n- maximum attempts",
+  "success": true,
+  "status": 200,
+  "latency_ms": 65081.22,
+  "actual_model": "minimax/minimax-m3",
+  "input_tokens": 212,
+  "output_tokens": 975,
+  "estimated_cost": 0.00098476,
+  "fallback_count": 0,
+  "response": {
+    "id": "gen-1790608720-QX6RCu8MhgKOSZHlgH9g",
+    "object": "chat.completion",
+    "created": 1790608720,
+    "model": "minimax/minimax-m3",
+    "provider": "CoreWeave",
+    "system_fingerprint": null,
+    "service_tier": null,
+    "choices": [
+      {
+        "index": 0,
+        "logprobs": null,
+        "finish_reason": "stop",
+        "native_finish_reason": "stop",
+        "message": {
+          "role": "assistant",
+          "content": "# Simple API Retry Strategy\n\n## 1. Errors to Retry\n\nOnly retry **transient failures** — problems that may resolve on their own:\n\n| Category | Examples |\n|----------|----------|\n| Network | Timeouts, connection reset, DNS failures |\n| Server | 500 Internal Server Error, 502 Bad Gateway, 503 Service Unavailable, 504 Gateway Timeout |\n| Rate limit | 429 Too Many Requests (honor the `Retry-After` header) |\n\n## 2. Errors NOT to Retry\n\nDo **not** retry client-side errors — retrying won't fix a bad request:\n\n- **400 Bad Request** — malformed payload\n- **401 Unauthorized** / **403 Forbidden** — auth issues won't fix themselves\n- **404 Not Found** — resource doesn't exist\n- **409 Conflict** — typically requires user/business decision\n- **422 Unprocessable Entity** — validation failure\n- **501 Not Implemented** — server doesn't support it\n\nAlso avoid retrying if the request is **not idempotent** (e.g., POST that creates a charge) unless you use idempotency keys.\n\n## 3. Backoff Approach\n\nUse **exponential backoff with jitter** to avoid thundering-herd problems:\n\n```\ndelay = min(max_delay, base * 2^attempt) + random_jitter\n```\n\nExample with base = 1s, max = 30s:\n\n| Attempt | Delay (approx, with jitter) |\n|---------|----------------------------|\n| 1 | ~1s |\n| 2 | ~2s |\n| 3 | ~4s |\n| 4 | ~8s |\n| 5 | ~16s |\n\nRules of thumb:\n- Always add **random jitter** (0–1s or 0–50% of delay)\n- Cap the maximum delay (e.g., 30s)\n- Respect the `Retry-After` header on 429 responses\n\n## 4. Maximum Attempts\n\n- **Default: 3 attempts** (1 initial + 2 retries)\n- **High-value or critical paths: up to 5**\n- Stop early on success or on a non-retryable error\n- Consider a **total time budget** (e.g., give up after 30s of total elapsed time)\n\n---\n\n### Quick pseudocode\n\n```python\nmax_attempts = 3\nbase_delay = 1.0\nmax_delay = 30.0\n\nfor attempt in range(max_attempts):\n    try:\n        response = call_api()\n        if response.ok or response.status in NON_RETRYABLE:\n            return response\n        if response.status in RETRYABLE:\n            delay = min(max_delay, base_delay * (2 ** attempt))\n            delay += random.uniform(0, 1)   # jitter\n            time.sleep(delay)\n            continue\n    except (Timeout, ConnectionError):\n        time.sleep(min(max_delay, base_delay * (2 ** attempt)) + jitter)\n\nraise ApiError(\"Max retries exceeded\")\n```\n\nThis gives you resilience against transient failures while avoiding wasted requests on real bugs.",
+          "refusal": null,
+          "reasoning": "The user is asking me to design a simple retry strategy for an API. This is a well-known software engineering topic. Let me provide a clear, practical answer covering the four requested aspects.\n\nI'll structure it well with clear sections. No need for code unless helpful — I'll keep it conceptual but could include a small pseudocode example if useful. Let me think about best practices:\n\n1. **Errors to retry**:\n   - Network/connection errors (timeouts, DNS failures, connection reset)\n   - 5xx server errors (500, 502, 503, 504)\n   - 429 Too Many Requests (with respect for Retry-After header)\n   - Temporary/transient failures\n\n2. **Errors NOT to retry**:\n   - 4xx client errors (400, 401, 403, 404) — these indicate the request itself is wrong\n   - 401/403 specifically — auth/permission issues won't fix themselves\n   - Business logic errors\n   - Data validation errors\n   - 501 Not Implemented\n\n3. **Backoff approach**:\n   - Exponential backoff with jitter is the standard\n   - Formula: delay = base * 2^attempt + random_jitter\n   - Typical base: 1 second\n   - Max delay cap to avoid huge waits\n   - Full jitter vs equal jitter vs decorrelated jitter\n\n4. **Maximum attempts**:\n   - Typically 3-5 attempts\n   - Balance between resilience and resource use\n   - Consider total time budget\n\nLet me write a concise, well-organized response. I'll keep it practical and avoid over-engineering since the user said \"simple\".",
+          "reasoning_details": [
+            {
+              "type": "reasoning.text",
+              "text": "The user is asking me to design a simple retry strategy for an API. This is a well-known software engineering topic. Let me provide a clear, practical answer covering the four requested aspects.\n\nI'll structure it well with clear sections. No need for code unless helpful — I'll keep it conceptual but could include a small pseudocode example if useful. Let me think about best practices:\n\n1. **Errors to retry**:\n   - Network/connection errors (timeouts, DNS failures, connection reset)\n   - 5xx server errors (500, 502, 503, 504)\n   - 429 Too Many Requests (with respect for Retry-After header)\n   - Temporary/transient failures\n\n2. **Errors NOT to retry**:\n   - 4xx client errors (400, 401, 403, 404) — these indicate the request itself is wrong\n   - 401/403 specifically — auth/permission issues won't fix themselves\n   - Business logic errors\n   - Data validation errors\n   - 501 Not Implemented\n\n3. **Backoff approach**:\n   - Exponential backoff with jitter is the standard\n   - Formula: delay = base * 2^attempt + random_jitter\n   - Typical base: 1 second\n   - Max delay cap to avoid huge waits\n   - Full jitter vs equal jitter vs decorrelated jitter\n\n4. **Maximum attempts**:\n   - Typically 3-5 attempts\n   - Balance between resilience and resource use\n   - Consider total time budget\n\nLet me write a concise, well-organized response. I'll keep it practical and avoid over-engineering since the user said \"simple\".",
+              "format": "unknown",
+              "index": 0
+            }
+          ]
+        }
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 212,
+      "completion_tokens": 975,
+      "total_tokens": 1187,
+      "cost": 0.00098476,
+      "is_byok": false,
+      "prompt_tokens_details": {
+        "cached_tokens": 0,
+        "cache_write_tokens": 0,
+        "audio_tokens": 0,
+        "video_tokens": 0
+      },
+      "cost_details": {
+        "upstream_inference_cost": 0.00098476,
+        "upstream_inference_prompt_cost": 4.876e-05,
+        "upstream_inference_completions_cost": 0.000936
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 366,
+        "image_tokens": 0,
+        "audio_tokens": 0
+      }
+    }
+  }
+}
+
+===== REQUEST 4 =====
+{
+  "prompt": "Explain idempotency in APIs in under 150 words.\nGive one concrete example.",
+  "success": true,
+  "status": 200,
+  "latency_ms": 12669.77,
+  "actual_model": "minimax/minimax-m3",
+  "input_tokens": 193,
+  "output_tokens": 340,
+  "estimated_cost": 0.00037079,
+  "fallback_count": 0,
+  "response": {
+    "id": "gen-1790608785-0HHdH6T5vRrSw7hmNvaE",
+    "object": "chat.completion",
+    "created": 1790608785,
+    "model": "minimax/minimax-m3",
+    "provider": "CoreWeave",
+    "system_fingerprint": null,
+    "service_tier": null,
+    "choices": [
+      {
+        "index": 0,
+        "logprobs": null,
+        "finish_reason": "stop",
+        "native_finish_reason": "stop",
+        "message": {
+          "role": "assistant",
+          "content": "**Idempotency in APIs**\n\nAn idempotent operation produces the **same result** no matter how many times it's called, even if the request is retried due to network failures or timeouts. This makes APIs safe and predictable under unreliable conditions.\n\nIn HTTP, `GET`, `PUT`, and `DELETE` are designed to be idempotent, while `POST` is not (it typically creates new resources).\n\n**Example:**\n```\nPUT /users/123/status  { \"active\": true }\n```\nCalling this 1 time or 100 times leaves user 123 in the same `active` state—no duplicates, no side effects beyond the first successful request.\n\nContrast with `POST /orders`, which creates a *new* order each time, potentially producing duplicates if retried.\n\nTo make non-idempotent operations safe, APIs often accept an **Idempotency-Key** header (e.g., Stripe's API), so retried requests with the same key return the original response instead of reprocessing.",
+          "refusal": null,
+          "reasoning": "The user wants a concise explanation of idempotency in APIs under 150 words, plus one concrete example. Let me craft a clear, technical but accessible response.\n\nKey points to cover:\n- Definition: same result no matter how many times called\n- Why it matters: safety on retries\n- HTTP methods context (GET, PUT, DELETE are idempotent; POST typically isn't)\n- One concrete example\n\nExample idea: PUT /users/123 {\"status\": \"active\"} — calling it 10 times leaves user 123 active, same result. Vs POST /orders creating duplicate orders.\n\nLet me draft and count words carefully to stay under 150.",
+          "reasoning_details": [
+            {
+              "type": "reasoning.text",
+              "text": "The user wants a concise explanation of idempotency in APIs under 150 words, plus one concrete example. Let me craft a clear, technical but accessible response.\n\nKey points to cover:\n- Definition: same result no matter how many times called\n- Why it matters: safety on retries\n- HTTP methods context (GET, PUT, DELETE are idempotent; POST typically isn't)\n- One concrete example\n\nExample idea: PUT /users/123 {\"status\": \"active\"} — calling it 10 times leaves user 123 active, same result. Vs POST /orders creating duplicate orders.\n\nLet me draft and count words carefully to stay under 150.",
+              "format": "unknown",
+              "index": 0
+            }
+          ]
+        }
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 193,
+      "completion_tokens": 340,
+      "total_tokens": 533,
+      "cost": 0.00037079,
+      "is_byok": false,
+      "prompt_tokens_details": {
+        "cached_tokens": 0,
+        "cache_write_tokens": 0,
+        "audio_tokens": 0,
+        "video_tokens": 0
+      },
+      "cost_details": {
+        "upstream_inference_cost": 0.00037079,
+        "upstream_inference_prompt_cost": 4.439e-05,
+        "upstream_inference_completions_cost": 0.0003264
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 151,
+        "image_tokens": 0,
+        "audio_tokens": 0
+      }
+    }
+  }
+}
+
+===== REQUEST 5 =====
+{
+  "prompt": "List five useful LLM router metrics and explain why each matters.",
+  "success": true,
+  "status": 200,
+  "latency_ms": 44272.33,
+  "actual_model": "minimax/minimax-m3",
+  "input_tokens": 189,
+  "output_tokens": 1068,
+  "estimated_cost": 0.00106875,
+  "fallback_count": 0,
+  "response": {
+    "id": "gen-1790608798-ja4ljo8gbKU5DQg4CF9d",
+    "object": "chat.completion",
+    "created": 1790608798,
+    "model": "minimax/minimax-m3",
+    "provider": "CoreWeave",
+    "system_fingerprint": null,
+    "service_tier": null,
+    "choices": [
+      {
+        "index": 0,
+        "logprobs": null,
+        "finish_reason": "stop",
+        "native_finish_reason": "stop",
+        "message": {
+          "role": "assistant",
+          "content": "# Five Useful LLM Router Metrics\n\n## 1. Routing Distribution (Model Selection Frequency)\n**What it is:** The percentage of requests sent to each backend model (e.g., \"60% to GPT-4o-mini, 30% to Claude Haiku, 10% to GPT-4o\").\n\n**Why it matters:** This is the primary lever for cost control. If a cheap model handles 80% of traffic and an expensive one handles the long tail, your bill looks very different than if those ratios are flipped. It also reveals whether your router is actually routing intelligently or defaulting to one model for everything — a sign the classifier is broken.\n\n---\n\n## 2. Cost per Request (and Total Spend)\n**What it is:** Average and total spend, broken down by route, prompt category, or user segment. Includes input/output token costs.\n\n**Why it matters:** LLMs are priced per token, and small routing changes can swing spend dramatically. Without this metric, you can't tell whether a \"smart\" reroute to a larger model is actually saving money on retries, or quietly doubling your bill. It's the metric finance will ask about first.\n\n---\n\n## 3. End-to-End Latency by Route (P50 / P95 / P99)\n**What it is:** Time from request received to final token streamed, segmented by the model that served the request.\n\n**Why it matters:** Different models have different latency profiles, and the router's job is often to match latency budgets to query complexity. Tracking percentiles (not just averages) exposes tail-latency problems — a single slow route can ruin UX even if its average is fine. P99 is where production incidents live.\n\n---\n\n## 4. Fallback / Retry Rate\n**What it is:** How often a request initially routed to one model had to be retried on another (due to errors, timeouts, content refusals, or quality failures).\n\n**Why it matters:** A high fallback rate means your router's first-pass classification is wrong — either sending easy prompts to weak models (forcing retries) or hard prompts to weak models that fail. It's the clearest signal that your routing logic needs retuning. Persistent fallbacks also mask costs since the failed attempt often still incurs billing.\n\n---\n\n## 5. Quality Score by Route\n**What it is:** A quality signal — automated evals, LLM-as-judge scores, or user feedback (thumbs, corrections) — broken down by the route that served the request.\n\n**Why it matters:** Latency and cost are useless if the answer is wrong. Quality metrics let you verify the routing trade-off is actually working: you may save money by sending simple queries to a small model, but only if quality holds. Without this, you're optimizing for the wrong axis and won't notice degradation until users complain.\n\n---\n\n**Bonus tip:** Track all five on a dashboard with the same time window. The most interesting story is usually in the *interaction* — e.g., \"quality dropped on Route B the same day we crossed 1M tokens/day on it\" — which a single metric would hide.",
+          "refusal": null,
+          "reasoning": "The user is asking for five useful LLM router metrics and explanations of why each matters. This is a straightforward question about observability and operational metrics for systems that route requests to different LLMs. Let me think about what metrics would be most useful in this context.\n\nAn LLM router is a system that directs incoming prompts to different LLM models based on various criteria (cost, complexity, latency requirements, etc.). Key metrics would focus on routing decisions, performance, cost, and quality.\n\nLet me think about what matters most:\n\n1. **Routing Distribution** - How often each model is selected. This matters because it directly impacts cost and capacity planning. If you're overusing expensive models, that's a problem.\n\n2. **Cost per Request** - The actual cost incurred for each routed request. Critical for budget management.\n\n3. **Latency by Route** - How long requests take when routed to different models. Users have SLAs.\n\n4. **Quality/Fallback Rate** - How often do you need to fall back to a different model? Indicates whether routing logic is calibrated correctly.\n\n5. **Error Rate by Model** - Different models have different failure modes.\n\nOther candidates:\n- Token usage\n- Cache hit rate\n- Routing accuracy (did we pick the right model?)\n- User satisfaction / thumbs down rate\n- Throughput (RPS)\n- P50/P95/P99 latency\n- Time-to-first-token\n\nLet me pick five that give a balanced view: routing distribution, cost, latency, fallback/error rate, and quality. Actually, let me think about what the \"big five\" would be for someone operating an LLM router:\n\n1. **Routing decision distribution** (or model selection frequency)\n2. **Cost per request / total cost**\n3. **Latency (P50, P95, P99) by route**\n4. **Fallback rate** (how often initial route needs to be redone)\n5. **Quality metrics** (could be automated evals or user feedback)\n\nI'll explain each clearly with why it matters operationally. Let me write this up in a clean, useful format.",
+          "reasoning_details": [
+            {
+              "type": "reasoning.text",
+              "text": "The user is asking for five useful LLM router metrics and explanations of why each matters. This is a straightforward question about observability and operational metrics for systems that route requests to different LLMs. Let me think about what metrics would be most useful in this context.\n\nAn LLM router is a system that directs incoming prompts to different LLM models based on various criteria (cost, complexity, latency requirements, etc.). Key metrics would focus on routing decisions, performance, cost, and quality.\n\nLet me think about what matters most:\n\n1. **Routing Distribution** - How often each model is selected. This matters because it directly impacts cost and capacity planning. If you're overusing expensive models, that's a problem.\n\n2. **Cost per Request** - The actual cost incurred for each routed request. Critical for budget management.\n\n3. **Latency by Route** - How long requests take when routed to different models. Users have SLAs.\n\n4. **Quality/Fallback Rate** - How often do you need to fall back to a different model? Indicates whether routing logic is calibrated correctly.\n\n5. **Error Rate by Model** - Different models have different failure modes.\n\nOther candidates:\n- Token usage\n- Cache hit rate\n- Routing accuracy (did we pick the right model?)\n- User satisfaction / thumbs down rate\n- Throughput (RPS)\n- P50/P95/P99 latency\n- Time-to-first-token\n\nLet me pick five that give a balanced view: routing distribution, cost, latency, fallback/error rate, and quality. Actually, let me think about what the \"big five\" would be for someone operating an LLM router:\n\n1. **Routing decision distribution** (or model selection frequency)\n2. **Cost per request / total cost**\n3. **Latency (P50, P95, P99) by route**\n4. **Fallback rate** (how often initial route needs to be redone)\n5. **Quality metrics** (could be automated evals or user feedback)\n\nI'll explain each clearly with why it matters operationally. Let me write this up in a clean, useful format.",
+              "format": "unknown",
+              "index": 0
+            }
+          ]
+        }
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 189,
+      "completion_tokens": 1068,
+      "total_tokens": 1257,
+      "cost": 0.00106875,
+      "is_byok": false,
+      "prompt_tokens_details": {
+        "cached_tokens": 0,
+        "cache_write_tokens": 0,
+        "audio_tokens": 0,
+        "video_tokens": 0
+      },
+      "cost_details": {
+        "upstream_inference_cost": 0.00106875,
+        "upstream_inference_prompt_cost": 4.347e-05,
+        "upstream_inference_completions_cost": 0.00102528
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 506,
+        "image_tokens": 0,
+        "audio_tokens": 0
+      }
+    }
+  }
+}
+
+===== REQUEST 6 =====
+{
+  "prompt": "Compare polling versus webhooks for an agent workflow.\nCover:\n- latency\n- reliability\n- infrastructure complexity\n- cost\n- best use case for each",
+  "success": false,
+  "status": null,
+  "latency_ms": 180019.14,
+  "error": "TimeoutError: timed out"
+}
+
+===== REQUEST 7 =====
+{
+  "prompt": "Propose a simple database schema for storing LLM routing telemetry.\nInclude the main tables and the most important fields.",
+  "success": true,
+  "status": 200,
+  "latency_ms": 6591.69,
+  "actual_model": "minimax/minimax-m3",
+  "input_tokens": 186,
+  "output_tokens": 1079,
+  "estimated_cost": 0.001055904,
+  "fallback_count": 0,
+  "response": {
+    "id": "gen-1790609022-7NkIPWlrAzDJC5yJHZ4X",
+    "object": "chat.completion",
+    "created": 1790609022,
+    "model": "minimax/minimax-m3",
+    "provider": "GMICloud",
+    "system_fingerprint": null,
+    "service_tier": null,
+    "choices": [
+      {
+        "index": 0,
+        "logprobs": null,
+        "finish_reason": "stop",
+        "native_finish_reason": "stop",
+        "message": {
+          "role": "assistant",
+          "content": "# LLM Routing Telemetry — Database Schema\n\nA practical schema for tracking requests, routing decisions, and outcomes across multiple LLM providers/models.\n\n## Core Tables\n\n### 1. `requests`\nThe top-level record for each inbound request to the router.\n\n| Field | Type | Description |\n|---|---|---|\n| `request_id` | UUID (PK) | Unique request identifier |\n| `timestamp` | TIMESTAMPTZ | When the request was received |\n| `client_id` | VARCHAR | Identifier for the calling client/app |\n| `user_id` | VARCHAR | End-user identifier (if available) |\n| `prompt_hash` | VARCHAR(64) | SHA-256 of the prompt (avoid storing raw PII) |\n| `prompt_tokens` | INT | Input token count |\n| `status` | ENUM | `success`, `error`, `timeout`, `rate_limited` |\n| `error_code` | VARCHAR | Provider/model error code if any |\n\n### 2. `routing_decisions`\nRecords the logic that selected a backend for each request.\n\n| Field | Type | Description |\n|---|---|---|\n| `decision_id` | UUID (PK) | Unique decision identifier |\n| `request_id` | UUID (FK → requests) | The request this decision belongs to |\n| `timestamp` | TIMESTAMPTZ | When the decision was made |\n| `strategy` | VARCHAR | e.g., `cost`, `latency`, `capability`, `fallback`, `random` |\n| `rules_evaluated` | JSONB | Rules/metadata consulted (e.g., score breakdown) |\n| `candidates` | JSONB | List of models considered with their scores |\n| `selected_model_id` | UUID (FK → models) | The model ultimately chosen |\n| `selection_reason` | TEXT | Human-readable explanation |\n\n### 3. `models`\nCatalog of available LLMs/endpoints.\n\n| Field | Type | Description |\n|---|---|---|\n| `model_id` | UUID (PK) | Unique model identifier |\n| `provider` | VARCHAR | e.g., `openai`, `anthropic`, `azure`, `self-hosted` |\n| `model_name` | VARCHAR | e.g., `gpt-4o`, `claude-3.5-sonnet` |\n| `endpoint` | VARCHAR | API URL or internal route |\n| `capabilities` | JSONB | Tags: `vision`, `tools`, `json_mode`, `context_window` |\n| `cost_per_1k_input` | DECIMAL | Pricing metadata |\n| `cost_per_1k_output` | DECIMAL | Pricing metadata |\n| `enabled` | BOOLEAN | Currently routable? |\n\n### 4. `provider_calls`\nOne row per actual backend invocation (a request may trigger ≥1 due to retries/fallbacks).\n\n| Field | Type | Description |\n|---|---|---|\n| `call_id` | UUID (PK) | Unique call identifier |\n| `request_id` | UUID (FK → requests) | Parent request |\n| `model_id` | UUID (FK → models) | Model invoked |\n| `attempt_number` | INT | 1 for first try, 2+ for retries |\n| `is_fallback` | BOOLEAN | Was this a fallback call? |\n| `started_at` | TIMESTAMPTZ | Call start |\n| `completed_at` | TIMESTAMPTZ | Call end |\n| `latency_ms` | INT | Total wall-clock latency |\n| `ttfb_ms` | INT | Time to first byte/token |\n| `output_tokens` | INT | Tokens generated |\n| `http_status` | INT | Upstream HTTP status |\n| `cost_usd` | DECIMAL | Calculated cost for this call |\n\n### 5. `feedback`\nOptional downstream quality signals (thumbs, evals, user reports).\n\n| Field | Type | Description |\n|---|---|---|\n| `feedback_id` | UUID (PK) | Unique feedback row |\n| `request_id` | UUID (FK → requests) | Related request |\n| `rating` | SMALLINT | e.g., 1–5 or -1/+1 |\n| `source` | VARCHAR | `user`, `auto_judge`, `a_b_test` |\n| `comment` | TEXT | Free-form notes |\n| `created_at` | TIMESTAMPTZ | When feedback was logged |\n\n## Relationships\n\n```\nrequests (1) ──< (N) routing_decisions\nrequests (1) ──< (N) provider_calls >── (1) models\nrequests (1) ──< (N) feedback\n```\n\n## Notes\n\n- **`prompt_hash` only**: storing full prompts is expensive and raises privacy concerns — hash for joinability, keep raw text in a separate, access-controlled store if needed.\n- **`candidates` as JSONB**: lets you evolve scoring logic without schema migrations.\n- **`provider_calls` is separate from `requests`**: cleanly handles retries and multi-model fallback chains.\n- **`routing_decisions` decoupled**: enables analysis of *why* a model was chosen independently from *whether* it worked — the foundation for improving the router itself.",
+          "refusal": null,
+          "reasoning": null
+        }
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 186,
+      "completion_tokens": 1079,
+      "total_tokens": 1265,
+      "cost": 0.001055904,
+      "is_byok": false,
+      "prompt_tokens_details": {
+        "cached_tokens": 128,
+        "cache_write_tokens": 0,
+        "audio_tokens": 0,
+        "video_tokens": 0
+      },
+      "cost_details": {
+        "upstream_inference_cost": 0.001055904,
+        "upstream_inference_prompt_cost": 2.0064e-05,
+        "upstream_inference_completions_cost": 0.00103584
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0,
+        "image_tokens": 0,
+        "audio_tokens": 0
+      }
+    }
+  }
+}
+
+===== REQUEST 8 =====
+{
+  "prompt": "Explain the difference between:\n- request timeout\n- network error\n- model-unavailable error\n\nFor each, explain how an LLM router should respond.",
+  "success": false,
+  "status": null,
+  "latency_ms": 180028.76,
+  "error": "TimeoutError: timed out"
+}
+
+===== REQUEST 9 =====
+{
+  "prompt": "Design a safe fallback strategy for a three-tier LLM router:\nFAST → BALANCED → DEEP\n\nExplain:\n- when to escalate\n- when not to retry\n- how to prevent runaway cost\n- what telemetry should be recorded",
+  "success": false,
+  "status": null,
+  "latency_ms": 180010.9,
+  "error": "TimeoutError: timed out"
+}
+
+===== REQUEST 10 =====
+{
+  "prompt": "Review this routing strategy:\n\n\"Use a cheap model first and escalate to a stronger model only when confidence is low.\"\n\nGive:\n- advantages\n- disadvantages\n- likely failure modes\n- situations where this strategy works well\n- situations where it should not be used",
+  "success": true,
+  "status": 200,
+  "latency_ms": 16861.21,
+  "actual_model": "minimax/minimax-m3",
+  "input_tokens": 215,
+  "output_tokens": 677,
+  "estimated_cost": 0.000676944,
+  "fallback_count": 0,
+  "response": {
+    "id": "gen-1790609388-mZss1irHxri9taS2zjhk",
+    "object": "chat.completion",
+    "created": 1790609388,
+    "model": "minimax/minimax-m3",
+    "provider": "GMICloud",
+    "system_fingerprint": null,
+    "service_tier": null,
+    "choices": [
+      {
+        "index": 0,
+        "logprobs": null,
+        "finish_reason": "stop",
+        "native_finish_reason": "stop",
+        "message": {
+          "role": "assistant",
+          "content": "# Routing Strategy Review: Cheap-First with Confidence-Based Escalation\n\n## Advantages\n\n- **Cost efficiency**: Most queries are handled by cheaper models, reducing average spend significantly.\n- **Latency optimization**: Smaller models typically respond faster, improving user experience on the common path.\n- **Scalability**: Lower per-query cost makes it easier to serve high request volumes economically.\n- **Graceful degradation philosophy**: Reserves expensive capability for cases that actually need it.\n\n## Disadvantages\n\n- **Calibration problem**: The \"cheap\" model may not produce reliable confidence scores, making the escalation decision itself unreliable.\n- **Latency penalty on escalation**: When escalation triggers, total latency is roughly the sum of both model calls, which can be worse than calling the strong model alone.\n- **Hidden context costs**: The second model often lacks the conversation history, prior reasoning, or tool state that a direct call would have had.\n- **Evaluation gap**: Hard to know whether the cheap model's *confident* answers are actually correct, since there's no second look.\n- **Error propagation**: If the cheap model misclassifies its own uncertainty, the wrong answer ships silently.\n\n## Likely Failure Modes\n\n1. **Confident wrong answers**: The cheap model expresses high confidence on incorrect outputs (a common LLM failure mode), and no escalation occurs.\n2. **Over-escalation**: A poorly calibrated cheap model routes most queries upward, eliminating the cost benefit.\n3. **Under-escalation on hard cases**: Subtle or multi-step problems get confidently mishandled rather than escalated.\n4. **Latency cliff**: Users on the escalation path get noticeably worse response times, creating inconsistent UX.\n5. **Verifier blindness**: The confidence signal (often logit-based) doesn't correlate well with actual correctness, especially for open-ended generation.\n\n## Works Well When\n\n- Tasks have **clear, checkable criteria** (formatting, simple math, classification with known labels).\n- The cheap model is **genuinely competent** on the majority of incoming queries.\n- Confidence can be measured meaningfully (e.g., constrained outputs, multiple-choice, tool-use success).\n- You can **validate cheaply** (regex match, schema check) before considering the answer final.\n- Cost differential is large enough to justify the engineering complexity.\n\n## Should Not Be Used When\n\n- **Stakes are high and errors are costly** (medical, legal, financial advice) — a confident wrong answer is worse than an expensive right one.\n- Tasks require **subtle reasoning or nuance** where the cheap model is likely to be confidently wrong.\n- The confidence signal is **unreliable** for the task type (creative generation, open-ended reasoning, ambiguous classification).\n- **Single-shot latency matters** and escalation cost is prohibitive.\n- The task domain is **outside the cheap model's competence** — it should always escalate, making the cheap model pointless.\n- You lack the **evaluation infrastructure** to measure whether the strategy is actually working.\n\n## A Related Question Worth Asking\n\nBefore implementing this, ask: *what's the marginal cost of an error?* If errors are cheap and reversible (autocomplete, draft suggestions), lean on the cheap model aggressively. If errors are expensive or irreversible, the routing logic itself becomes a critical liability — and a simpler \"use the strong model\" baseline may outperform it.",
+          "refusal": null,
+          "reasoning": null
+        }
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 215,
+      "completion_tokens": 677,
+      "total_tokens": 892,
+      "cost": 0.000676944,
+      "is_byok": false,
+      "prompt_tokens_details": {
+        "cached_tokens": 128,
+        "cache_write_tokens": 0,
+        "audio_tokens": 0,
+        "video_tokens": 0
+      },
+      "cost_details": {
+        "upstream_inference_cost": 0.000676944,
+        "upstream_inference_prompt_cost": 2.7024e-05,
+        "upstream_inference_completions_cost": 0.00064992
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0,
+        "image_tokens": 0,
+        "audio_tokens": 0
+      }
+    }
+  }
+}
+
+===== SUMMARY =====
+{
+  "requests_attempted": 10,
+  "successes": 7,
+  "failures": 3,
+  "actual_models": [
+    "minimax/minimax-m3",
+    "minimax/minimax-m3",
+    "minimax/minimax-m3",
+    "minimax/minimax-m3",
+    "minimax/minimax-m3",
+    null,
+    "minimax/minimax-m3",
+    null,
+    null,
+    "minimax/minimax-m3"
+  ],
+  "average_latency_ms_successful": 22328.84,
+  "median_latency_ms": 30566.77,
+  "maximum_latency_ms": 180028.76,
+  "over_30_seconds": [
+    3,
+    5,
+    6,
+    8,
+    9
+  ],
+  "over_60_seconds": [
+    3,
+    6,
+    8,
+    9
+  ],
+  "over_120_seconds": [
+    6,
+    8,
+    9
+  ],
+  "total_input_tokens": 1367,
+  "total_output_tokens": 4690,
+  "total_estimated_cost": 0.004771668000000001,
+  "fallback_count": 0
+}

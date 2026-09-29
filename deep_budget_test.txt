@@ -1,0 +1,372 @@
+chain=["minimax/minimax-m3", "qwen/qwen3.8-max-0902", "deepseek/deepseek-v4-flash"]
+overall_budget_seconds=90.0
+attempt_limits_seconds=[60.0, 30.0, 30.0]
+
+{
+  "request_number": 1,
+  "attempts": [
+    {
+      "model": "minimax/minimax-m3",
+      "attempt_number": 1,
+      "attempt_start_time": "2026-09-28T16:28:16.161233+00:00",
+      "budget_before_seconds": 90.0,
+      "hard_timeout": false,
+      "http_status": 200,
+      "success": true,
+      "tokens": {
+        "input": 187,
+        "output": 243
+      },
+      "estimated_cost": 0.00027629,
+      "exception": null,
+      "latency_ms": 17572.02,
+      "budget_after_seconds": 72.428
+    }
+  ],
+  "fallback_count": 0,
+  "total_request_latency_ms": 17572.05,
+  "overall_budget_expired": false,
+  "final_model": "minimax/minimax-m3",
+  "final_success": true,
+  "final_result": "success",
+  "total_estimated_cost": 0.00027629
+}
+
+{
+  "request_number": 2,
+  "attempts": [
+    {
+      "model": "minimax/minimax-m3",
+      "attempt_number": 1,
+      "attempt_start_time": "2026-09-28T16:28:33.733572+00:00",
+      "budget_before_seconds": 90.0,
+      "hard_timeout": false,
+      "http_status": 200,
+      "success": true,
+      "tokens": {
+        "input": 172,
+        "output": 249
+      },
+      "estimated_cost": 0.000253056,
+      "exception": null,
+      "latency_ms": 6232.72,
+      "budget_after_seconds": 83.767
+    }
+  ],
+  "fallback_count": 0,
+  "total_request_latency_ms": 6232.75,
+  "overall_budget_expired": false,
+  "final_model": "minimax/minimax-m3",
+  "final_success": true,
+  "final_result": "success",
+  "total_estimated_cost": 0.000253056
+}
+
+{
+  "request_number": 3,
+  "attempts": [
+    {
+      "model": "minimax/minimax-m3",
+      "attempt_number": 1,
+      "attempt_start_time": "2026-09-28T16:28:39.966415+00:00",
+      "budget_before_seconds": 90.0,
+      "hard_timeout": true,
+      "http_status": null,
+      "success": false,
+      "tokens": {
+        "input": null,
+        "output": null
+      },
+      "estimated_cost": null,
+      "exception": "TimeoutError",
+      "latency_ms": 60003.3,
+      "budget_after_seconds": 29.997
+    },
+    {
+      "model": "qwen/qwen3.8-max-0902",
+      "attempt_number": 2,
+      "attempt_start_time": "2026-09-28T16:29:39.969743+00:00",
+      "budget_before_seconds": 29.997,
+      "hard_timeout": false,
+      "http_status": 200,
+      "success": true,
+      "tokens": {
+        "input": 99,
+        "output": 985
+      },
+      "estimated_cost": 0.006108,
+      "exception": null,
+      "latency_ms": 21980.72,
+      "budget_after_seconds": 8.016
+    }
+  ],
+  "fallback_count": 1,
+  "total_request_latency_ms": 81984.07,
+  "overall_budget_expired": false,
+  "final_model": "qwen/qwen3.8-max-0902",
+  "final_success": true,
+  "final_result": "success",
+  "total_estimated_cost": 0.006108
+}
+
+{
+  "request_number": 4,
+  "attempts": [
+    {
+      "model": "minimax/minimax-m3",
+      "attempt_number": 1,
+      "attempt_start_time": "2026-09-28T16:30:01.950590+00:00",
+      "budget_before_seconds": 90.0,
+      "hard_timeout": false,
+      "http_status": 200,
+      "success": true,
+      "tokens": {
+        "input": 193,
+        "output": 297
+      },
+      "estimated_cost": 0.00032951,
+      "exception": null,
+      "latency_ms": 15364.65,
+      "budget_after_seconds": 74.635
+    }
+  ],
+  "fallback_count": 0,
+  "total_request_latency_ms": 15364.67,
+  "overall_budget_expired": false,
+  "final_model": "minimax/minimax-m3",
+  "final_success": true,
+  "final_result": "success",
+  "total_estimated_cost": 0.00032951
+}
+
+{
+  "request_number": 5,
+  "attempts": [
+    {
+      "model": "minimax/minimax-m3",
+      "attempt_number": 1,
+      "attempt_start_time": "2026-09-28T16:30:17.315351+00:00",
+      "budget_before_seconds": 90.0,
+      "hard_timeout": false,
+      "http_status": 200,
+      "success": true,
+      "tokens": {
+        "input": 176,
+        "output": 504
+      },
+      "estimated_cost": 0.000498816,
+      "exception": null,
+      "latency_ms": 10215.09,
+      "budget_after_seconds": 79.785
+    }
+  ],
+  "fallback_count": 0,
+  "total_request_latency_ms": 10215.11,
+  "overall_budget_expired": false,
+  "final_model": "minimax/minimax-m3",
+  "final_success": true,
+  "final_result": "success",
+  "total_estimated_cost": 0.000498816
+}
+
+{
+  "request_number": 6,
+  "attempts": [
+    {
+      "model": "minimax/minimax-m3",
+      "attempt_number": 1,
+      "attempt_start_time": "2026-09-28T16:30:27.530626+00:00",
+      "budget_before_seconds": 90.0,
+      "hard_timeout": false,
+      "http_status": 200,
+      "success": true,
+      "tokens": {
+        "input": 194,
+        "output": 555
+      },
+      "estimated_cost": 0.000542304,
+      "exception": null,
+      "latency_ms": 5229.13,
+      "budget_after_seconds": 84.771
+    }
+  ],
+  "fallback_count": 0,
+  "total_request_latency_ms": 5229.16,
+  "overall_budget_expired": false,
+  "final_model": "minimax/minimax-m3",
+  "final_success": true,
+  "final_result": "success",
+  "total_estimated_cost": 0.000542304
+}
+
+{
+  "request_number": 7,
+  "attempts": [
+    {
+      "model": "minimax/minimax-m3",
+      "attempt_number": 1,
+      "attempt_start_time": "2026-09-28T16:30:32.759875+00:00",
+      "budget_before_seconds": 90.0,
+      "hard_timeout": true,
+      "http_status": null,
+      "success": false,
+      "tokens": {
+        "input": null,
+        "output": null
+      },
+      "estimated_cost": null,
+      "exception": "TimeoutError",
+      "latency_ms": 60007.88,
+      "budget_after_seconds": 29.992
+    },
+    {
+      "model": "qwen/qwen3.8-max-0902",
+      "attempt_number": 2,
+      "attempt_start_time": "2026-09-28T16:31:32.767783+00:00",
+      "budget_before_seconds": 29.992,
+      "hard_timeout": true,
+      "http_status": null,
+      "success": false,
+      "tokens": {
+        "input": null,
+        "output": null
+      },
+      "estimated_cost": null,
+      "exception": "TimeoutError",
+      "latency_ms": 30003.69,
+      "budget_after_seconds": 0.0
+    }
+  ],
+  "fallback_count": 1,
+  "total_request_latency_ms": 90011.64,
+  "overall_budget_expired": true,
+  "final_model": null,
+  "final_success": false,
+  "final_result": "TimeoutError",
+  "total_estimated_cost": 0
+}
+
+{
+  "request_number": 8,
+  "attempts": [
+    {
+      "model": "minimax/minimax-m3",
+      "attempt_number": 1,
+      "attempt_start_time": "2026-09-28T16:32:02.771677+00:00",
+      "budget_before_seconds": 90.0,
+      "hard_timeout": true,
+      "http_status": null,
+      "success": false,
+      "tokens": {
+        "input": null,
+        "output": null
+      },
+      "estimated_cost": null,
+      "exception": "TimeoutError",
+      "latency_ms": 60005.94,
+      "budget_after_seconds": 29.994
+    },
+    {
+      "model": "qwen/qwen3.8-max-0902",
+      "attempt_number": 2,
+      "attempt_start_time": "2026-09-28T16:33:02.777650+00:00",
+      "budget_before_seconds": 29.994,
+      "hard_timeout": true,
+      "http_status": null,
+      "success": false,
+      "tokens": {
+        "input": null,
+        "output": null
+      },
+      "estimated_cost": null,
+      "exception": "TimeoutError",
+      "latency_ms": 30006.36,
+      "budget_after_seconds": 0.0
+    }
+  ],
+  "fallback_count": 1,
+  "total_request_latency_ms": 90012.37,
+  "overall_budget_expired": true,
+  "final_model": null,
+  "final_success": false,
+  "final_result": "TimeoutError",
+  "total_estimated_cost": 0
+}
+
+{
+  "request_number": 9,
+  "attempts": [
+    {
+      "model": "minimax/minimax-m3",
+      "attempt_number": 1,
+      "attempt_start_time": "2026-09-28T16:33:32.784158+00:00",
+      "budget_before_seconds": 90.0,
+      "hard_timeout": false,
+      "http_status": 200,
+      "success": true,
+      "tokens": {
+        "input": 210,
+        "output": 1111
+      },
+      "estimated_cost": 0.001092384,
+      "exception": null,
+      "latency_ms": 8888.42,
+      "budget_after_seconds": 81.112
+    }
+  ],
+  "fallback_count": 0,
+  "total_request_latency_ms": 8888.44,
+  "overall_budget_expired": false,
+  "final_model": "minimax/minimax-m3",
+  "final_success": true,
+  "final_result": "success",
+  "total_estimated_cost": 0.001092384
+}
+
+{
+  "request_number": 10,
+  "attempts": [
+    {
+      "model": "minimax/minimax-m3",
+      "attempt_number": 1,
+      "attempt_start_time": "2026-09-28T16:33:41.672688+00:00",
+      "budget_before_seconds": 90.0,
+      "hard_timeout": false,
+      "http_status": 200,
+      "success": true,
+      "tokens": {
+        "input": 215,
+        "output": 789
+      },
+      "estimated_cost": 0.000767952,
+      "exception": null,
+      "latency_ms": 5871.96,
+      "budget_after_seconds": 84.128
+    }
+  ],
+  "fallback_count": 0,
+  "total_request_latency_ms": 5871.99,
+  "overall_budget_expired": false,
+  "final_model": "minimax/minimax-m3",
+  "final_success": true,
+  "final_result": "success",
+  "total_estimated_cost": 0.000767952
+}
+
+===== SUMMARY =====
+{
+  "requests_attempted": 10,
+  "successes": 8,
+  "failures": 2,
+  "minimax_completions": 7,
+  "minimax_timeouts": 3,
+  "qwen_recoveries": 1,
+  "deepseek_recoveries": 0,
+  "overall_budget_expired": 2,
+  "average_latency_ms": 33138.22,
+  "median_latency_ms": 12789.89,
+  "maximum_latency_ms": 90012.37,
+  "p95_latency_ms": 90011.64,
+  "total_estimated_cost": 0.009868312,
+  "fallback_rate": 0.3
+}

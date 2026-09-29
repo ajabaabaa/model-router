@@ -1,0 +1,62 @@
+{
+  "1": {
+    "A": "balanced",
+    "B": "fast"
+  },
+  "2": {
+    "A": "balanced",
+    "B": "fast"
+  },
+  "3": {
+    "A": "fast",
+    "B": "balanced"
+  },
+  "4": {
+    "A": "fast",
+    "B": "balanced"
+  },
+  "5": {
+    "A": "balanced",
+    "B": "fast"
+  },
+  "6": {
+    "A": "balanced",
+    "B": "fast"
+  },
+  "7": {
+    "A": "balanced",
+    "B": "fast"
+  },
+  "8": {
+    "A": "balanced",
+    "B": "fast"
+  },
+  "9": {
+    "A": "balanced",
+    "B": "fast"
+  },
+  "10": {
+    "A": "balanced",
+    "B": "fast"
+  },
+  "11": {
+    "A": "balanced",
+    "B": "fast"
+  },
+  "12": {
+    "A": "balanced",
+    "B": "fast"
+  },
+  "13": {
+    "A": "fast",
+    "B": "balanced"
+  },
+  "14": {
+    "A": "balanced",
+    "B": "fast"
+  },
+  "15": {
+    "A": "fast",
+    "B": "balanced"
+  }
+}

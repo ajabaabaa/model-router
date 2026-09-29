@@ -1,0 +1,136 @@
+Temporary DEEP fallback diagnostic
+chain=["minimax/minimax-m3", "qwen/qwen3.8-max-0902", "deepseek/deepseek-v4-flash"]
+primary_timeout_seconds=10
+
+{
+  "request_number": 1,
+  "primary_model_attempted": "minimax/minimax-m3",
+  "primary_timed_out": false,
+  "fallback_model_used": null,
+  "final_http_status": 200,
+  "final_success": true,
+  "total_latency_ms": 6962.11,
+  "attempts": [
+    {
+      "model": "minimax/minimax-m3",
+      "latency_ms": 6961.87,
+      "status": 200,
+      "success": true,
+      "input_tokens": 185,
+      "output_tokens": 294,
+      "estimated_cost": 0.00032479
+    }
+  ],
+  "fallback_count": 0,
+  "exception_class": null
+}
+
+{
+  "request_number": 2,
+  "primary_model_attempted": "minimax/minimax-m3",
+  "primary_timed_out": false,
+  "fallback_model_used": null,
+  "final_http_status": 200,
+  "final_success": true,
+  "total_latency_ms": 137977.09,
+  "attempts": [
+    {
+      "model": "minimax/minimax-m3",
+      "latency_ms": 137976.97,
+      "status": 200,
+      "success": true,
+      "input_tokens": 185,
+      "output_tokens": 1466,
+      "estimated_cost": 0.00144991
+    }
+  ],
+  "fallback_count": 0,
+  "exception_class": null
+}
+
+{
+  "request_number": 3,
+  "primary_model_attempted": "minimax/minimax-m3",
+  "primary_timed_out": false,
+  "fallback_model_used": null,
+  "final_http_status": 200,
+  "final_success": true,
+  "total_latency_ms": 29185.46,
+  "attempts": [
+    {
+      "model": "minimax/minimax-m3",
+      "latency_ms": 29185.38,
+      "status": 200,
+      "success": true,
+      "input_tokens": 182,
+      "output_tokens": 999,
+      "estimated_cost": 0.0010009
+    }
+  ],
+  "fallback_count": 0,
+  "exception_class": null
+}
+
+{
+  "request_number": 4,
+  "primary_model_attempted": "minimax/minimax-m3",
+  "primary_timed_out": false,
+  "fallback_model_used": null,
+  "final_http_status": 200,
+  "final_success": true,
+  "total_latency_ms": 139039.71,
+  "attempts": [
+    {
+      "model": "minimax/minimax-m3",
+      "latency_ms": 139039.62,
+      "status": 200,
+      "success": true,
+      "input_tokens": 184,
+      "output_tokens": 3958,
+      "estimated_cost": 0.003842
+    }
+  ],
+  "fallback_count": 0,
+  "exception_class": null
+}
+
+{
+  "request_number": 5,
+  "primary_model_attempted": "minimax/minimax-m3",
+  "primary_timed_out": false,
+  "fallback_model_used": null,
+  "final_http_status": 200,
+  "final_success": true,
+  "total_latency_ms": 81732.16,
+  "attempts": [
+    {
+      "model": "minimax/minimax-m3",
+      "latency_ms": 81732.08,
+      "status": 200,
+      "success": true,
+      "input_tokens": 187,
+      "output_tokens": 1591,
+      "estimated_cost": 0.00157037
+    }
+  ],
+  "fallback_count": 0,
+  "exception_class": null
+}
+
+===== SUMMARY =====
+{
+  "requests_attempted": 5,
+  "successes": 5,
+  "failures": 0,
+  "fallbacks_used": 0,
+  "final_models": [
+    "minimax/minimax-m3",
+    "minimax/minimax-m3",
+    "minimax/minimax-m3",
+    "minimax/minimax-m3",
+    "minimax/minimax-m3"
+  ],
+  "total_input_tokens_by_attempt": 923,
+  "total_output_tokens_by_attempt": 8308,
+  "total_estimated_cost_by_attempt": 0.00818797
+}
