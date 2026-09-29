@@ -2,7 +2,8 @@
   "tiers": {
     "fast": {"provider": "openrouter", "primary": "qwen/qwen3.8-flash", "fallbacks": ["~z-ai/glm-flash-latest"]},
     "balanced": {"provider": "openrouter", "primary": "qwen/qwen3.8-max-0902", "fallbacks": ["deepseek/deepseek-v4-flash", "minimax/minimax-m1"]},
-    "deep": {"provider": "openrouter", "primary": "minimax/minimax-m3", "fallbacks": ["qwen/qwen3.8-max-0902", "deepseek/deepseek-v4-flash"]}
+    "deep": {"provider": "openrouter", "primary": "minimax/minimax-m3", "fallbacks": ["qwen/qwen3.8-max-0902", "deepseek/deepseek-v4-flash"]},
+    "jev": {"provider": "openrouter", "primary": "typesafe/jev-router", "fallbacks": []}
   },
   "openrouter": {"base_url": "https://openrouter.ai/api/v1", "api_key_env": "OPENROUTER_KEY", "timeout_seconds": 120}
 }
