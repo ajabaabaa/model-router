@@ -43,14 +43,14 @@ SUMMARY_COLUMNS = (
     "id", "timestamp", "requested_tier", "selected_tier", "routing_automatic", "routing_reason",
     "actual_model", "attempted_models", "input_tokens", "output_tokens", "latency_ms",
     "estimated_cost", "http_status", "success", "fallback_count", "budget_exhausted",
-    "finish_reason",
+    "finish_reason", "agent",
 )
 
 # Columns the recent-request table may show. A strict subset of SUMMARY_COLUMNS and
 # nothing else, so the UI cannot render a field the API does not send.
 RECENT_COLUMNS = (
     "timestamp", "requested_tier", "selected_tier", "routing_automatic", "routing_reason",
-    "actual_model", "latency_ms", "estimated_cost", "http_status", "success",
+    "actual_model", "agent", "latency_ms", "estimated_cost", "http_status", "success",
     "fallback_count", "budget_exhausted",
 )
 
@@ -279,6 +279,132 @@ def build_recent(limit: int, scope: str = "recent", start: str | None = None,
     return {"window": window, "requests": visible}
 
 
+def _bucket_key(when: datetime, bucket: str) -> str:
+    local = when.astimezone()
+    return local.strftime("%Y-%m-%d %H:00") if bucket == "hour" else local.strftime("%Y-%m-%d")
+
+
+def _daily_totals(timed: list[tuple[datetime, dict[str, Any]]]) -> list[dict[str, Any]]:
+    days: dict[str, dict[str, Any]] = {}
+    for when, row in timed:
+        day = days.setdefault(when.astimezone().strftime("%Y-%m-%d"), {
+            "day": when.astimezone().strftime("%Y-%m-%d"), "requests": 0,
+            "cost": 0.0, "input_tokens": 0, "output_tokens": 0})
+        day["requests"] += 1
+        day["cost"] += float(row.get("estimated_cost") or 0)
+        day["input_tokens"] += int(row.get("input_tokens") or 0)
+        day["output_tokens"] += int(row.get("output_tokens") or 0)
+    ordered = [days[key] for key in sorted(days)]
+    for day in ordered:
+        day["cost"] = round(day["cost"], 8)
+    return ordered
+
+
+def _project(days: list[dict[str, Any]]) -> dict[str, Any]:
+    """Least-squares daily trend plus a flat recent-mean baseline, for cost and input tokens.
+
+    Deliberately simple and labelled: it extrapolates the observed day buckets and nothing
+    else. With fewer than two day buckets no trend is meaningful, so say so instead of
+    inventing one.
+    """
+    n = len(days)
+    if n < 2:
+        return {"available": False, "days_observed": n,
+                "reason": "at least two day buckets are needed to fit a trend"}
+    xs = list(range(n))
+    mean_x = sum(xs) / n
+
+    def fit(values: list[float]) -> tuple[float, float]:
+        mean_y = sum(values) / n
+        denom = sum((x - mean_x) ** 2 for x in xs)
+        slope = sum((x - mean_x) * (y - mean_y) for x, y in zip(xs, values)) / denom if denom else 0.0
+        return slope, mean_y - slope * mean_x
+
+    def horizon(slope: float, intercept: float, mean: float, count: int) -> dict[str, float]:
+        linear = sum(max(0.0, intercept + slope * (n - 1 + i)) for i in range(1, count + 1))
+        return {"linear_trend": round(linear, 6), "recent_mean": round(mean * count, 6)}
+
+    result: dict[str, Any] = {
+        "available": True, "days_observed": n, "days": [day["day"] for day in days],
+        "method": ("least-squares fit over observed day buckets; recent_mean is the "
+                   "flat-rate alternative; partial days are included as observed"),
+    }
+    for field in ("cost", "input_tokens"):
+        values = [float(day[field]) for day in days]
+        slope, intercept = fit(values)
+        mean = sum(values) / n
+        linear30 = sum(max(0.0, intercept + slope * (n - 1 + i)) for i in range(1, 31))
+        flat30 = mean * 30
+        divergence = (linear30 / flat30) if flat30 > 0 else None
+        result[field] = {
+            "per_day_recent_mean": round(mean, 6),
+            "per_day_trend_slope": round(slope, 6),
+            "next_7_days": horizon(slope, intercept, mean, 7),
+            "next_30_days": {"linear_trend": round(linear30, 6), "recent_mean": round(flat30, 6)},
+            "divergence_ratio_30d": round(divergence, 2) if divergence is not None else None,
+        }
+    # A least-squares line through a handful of days can explode. Say so loudly rather
+    # than letting one big day masquerade as a monthly forecast.
+    warnings: list[str] = []
+    if n < 7:
+        warnings.append(f"only {n} day buckets observed - treat every projection as indicative")
+    cost_div = result["cost"].get("divergence_ratio_30d")
+    if cost_div is not None and (cost_div > 3 or cost_div < 1 / 3):
+        warnings.append(
+            f"linear 30-day cost is {cost_div:.1f}x the flat-rate estimate - the trend fit is "
+            "unstable at this sample size; prefer recent_mean")
+    result["confidence"] = "low" if n < 7 else ("moderate" if n < 14 else "ok")
+    result["warnings"] = warnings
+    return result
+
+
+def build_timeseries(scope: str, recent: int, start: str | None = None,
+                     end: str | None = None, snapshot_name: str | None = None) -> dict[str, Any]:
+    rows, window = read_scoped_rows(scope, recent, start, end, snapshot_name)
+    timed = [(when, row) for row in rows
+             if (when := _parse_timestamp(row.get("timestamp"))) is not None]
+    timed.sort(key=lambda item: item[0])
+    span_hours = (timed[-1][0] - timed[0][0]).total_seconds() / 3600 if timed else 0.0
+    bucket = "hour" if span_hours <= 72 else "day"
+
+    buckets: dict[str, dict[str, Any]] = {}
+    agents: dict[str, dict[str, Any]] = {}
+    for when, row in timed:
+        b = buckets.setdefault(_bucket_key(when, bucket), {
+            "requests": 0, "ok": 0, "failed": 0, "cost": 0.0,
+            "input_tokens": 0, "output_tokens": 0, "latencies": []})
+        b["requests"] += 1
+        b["ok" if _is_true(row.get("success")) else "failed"] += 1
+        b["cost"] += float(row.get("estimated_cost") or 0)
+        b["input_tokens"] += int(row.get("input_tokens") or 0)
+        b["output_tokens"] += int(row.get("output_tokens") or 0)
+        if row.get("latency_ms") is not None:
+            b["latencies"].append(float(row["latency_ms"]))
+        a = agents.setdefault(row.get("agent") or "(unattributed)", {
+            "requests": 0, "cost": 0.0, "input_tokens": 0, "output_tokens": 0})
+        a["requests"] += 1
+        a["cost"] += float(row.get("estimated_cost") or 0)
+        a["input_tokens"] += int(row.get("input_tokens") or 0)
+        a["output_tokens"] += int(row.get("output_tokens") or 0)
+
+    series = []
+    for key in sorted(buckets):
+        b = buckets[key]
+        series.append({
+            "bucket": key, "requests": b["requests"], "ok": b["ok"], "failed": b["failed"],
+            "cost": round(b["cost"], 8), "input_tokens": b["input_tokens"],
+            "output_tokens": b["output_tokens"],
+            "p95_latency_ms": round(_percentile(b["latencies"], 0.95), 2) if b["latencies"] else None,
+        })
+    for a in agents.values():
+        a["cost"] = round(a["cost"], 8)
+    return {
+        "window": window, "bucket": bucket, "series": series,
+        "agents": dict(sorted(agents.items(), key=lambda kv: -kv[1]["cost"])),
+        "days": _daily_totals(timed), "projection": _project(_daily_totals(timed)),
+    }
+
+
 router = APIRouter()
 
 
@@ -344,6 +470,14 @@ def dashboard_recent(limit: int = Query(100, ge=MIN_WINDOW, le=MAX_WINDOW),
                      scope: str | None = None, start: str | None = None,
                      end: str | None = None, snapshot: str | None = None) -> Any:
     return _guarded(lambda: build_recent(limit, scope or "recent", start, end, snapshot))
+
+
+@router.get("/api/dashboard/timeseries")
+def dashboard_timeseries(scope: str = Query("recent"),
+                         recent: int = Query(100, ge=MIN_WINDOW, le=MAX_WINDOW),
+                         start: str | None = None, end: str | None = None,
+                         snapshot: str | None = None) -> Any:
+    return _guarded(lambda: build_timeseries(scope, recent, start, end, snapshot))
 
 
 @router.get("/dashboard", include_in_schema=False)

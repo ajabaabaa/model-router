@@ -23,7 +23,7 @@ BASE_ROW = {
     "output_tokens": 2, "latency_ms": 100.0, "estimated_cost": 0.01, "http_status": 200,
     "success": 1, "fallback_count": 0, "budget_exhausted": 0, "requested_tier": None,
     "routing_reason": "default_interactive", "routing_automatic": 1,
-    "attempted_models": json.dumps(["m1"]), "finish_reason": "stop",
+    "attempted_models": json.dumps(["m1"]), "finish_reason": "stop", "agent": "tester",
 }
 
 FIXTURE_ROWS = [
@@ -47,7 +47,7 @@ def make_db(path, rows):
             " output_tokens INTEGER, latency_ms REAL, estimated_cost REAL, http_status INTEGER,"
             " success INTEGER, fallback_count INTEGER, budget_exhausted INTEGER,"
             " requested_tier TEXT, routing_reason TEXT, routing_automatic INTEGER,"
-            " attempted_models TEXT, finish_reason TEXT, prompt_text TEXT)"
+            " attempted_models TEXT, finish_reason TEXT, agent TEXT, prompt_text TEXT)"
         )
         for index, override in enumerate(rows, start=1):
             data = dict(BASE_ROW)
@@ -390,3 +390,48 @@ def test_snapshot_scope_rejects_unknown_snapshot_and_snapshot_list_is_metadata_o
     assert isinstance(snapshots, list)
     page = client.get("/dashboard").text
     assert "Snapshot Context" in page and "edit-context" in page and "benchmark_findings" in page
+
+
+def test_timeseries_buckets_agents_and_single_day_projection_unavailable(client):
+    body = client.get("/api/dashboard/timeseries?scope=recent&recent=5").json()
+    # All fixture rows sit inside one hour, so one hour bucket and one day bucket.
+    assert body["bucket"] == "hour"
+    assert len(body["series"]) == 1
+    bucket = body["series"][0]
+    assert bucket["requests"] == 5 and bucket["ok"] == 4 and bucket["failed"] == 1
+    assert bucket["cost"] == pytest.approx(0.1)
+    assert body["agents"]["tester"]["requests"] == 5
+    assert body["projection"]["available"] is False
+    assert body["projection"]["days_observed"] == 1
+
+
+def test_timeseries_projection_flags_unstable_linear_fit(monkeypatch, tmp_path):
+    rows = [
+        {"timestamp": "2026-09-26T12:00:00Z", "estimated_cost": 0.01, "agent": "a"},
+        {"timestamp": "2026-09-26T13:00:00Z", "estimated_cost": 0.01, "agent": "a"},
+        {"timestamp": "2026-09-27T12:00:00Z", "estimated_cost": 0.01, "agent": "b"},
+        {"timestamp": "2026-09-27T13:00:00Z", "estimated_cost": 0.01, "agent": "b"},
+        {"timestamp": "2026-09-28T12:00:00Z", "estimated_cost": 5.00, "agent": "a"},
+        {"timestamp": "2026-09-28T13:00:00Z", "estimated_cost": 5.00, "agent": "a"},
+    ]
+    use_db(monkeypatch, make_db(tmp_path / "tel.db", rows))
+    client = TestClient(app.app)
+    body = client.get("/api/dashboard/timeseries?scope=last_7_days").json()
+    assert body["bucket"] == "hour"
+    assert len(body["days"]) == 3
+    proj = body["projection"]
+    assert proj["available"] is True and proj["confidence"] == "low"
+    # Three days with a 500x jump on the last one must be flagged, not presented as fact.
+    assert proj["cost"]["divergence_ratio_30d"] > 3
+    assert any("unstable" in w for w in proj["warnings"]), proj["warnings"]
+    assert any("only 3 day buckets" in w for w in proj["warnings"])
+    # Agent attribution survives into the timeseries payload.
+    assert set(body["agents"]) == {"a", "b"}
+    assert body["agents"]["a"]["cost"] == pytest.approx(10.02)
+
+
+def test_recent_table_exposes_agent_column(client):
+    requests = client.get("/api/dashboard/recent?limit=5").json()["requests"]
+    assert all("agent" in row for row in requests)
+    assert requests[0]["agent"] == "tester"
+    assert "prompt_text" not in requests[0]

@@ -59,6 +59,10 @@
   dd.pct { color: var(--muted); width: 5em; }
   .charts { grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); margin-bottom: 14px; }
   .chart { position: relative; height: 190px; }
+  .chart.tall { height: 250px; }
+  .proj-note { color: var(--muted); font-size: 11px; margin: -6px 0 12px; }
+  .cost-chip.trend { border-left: 3px solid var(--chart-b); }
+  .cost-chip.proj { border-left: 3px solid var(--warn); }
   table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
   th, td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
   th { color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .4px;
@@ -154,13 +158,29 @@
   <section class="panel"><h2>Success / error trend</h2><div class="chart"><canvas id="c-trend"></canvas></div></section>
 </div>
 
+<section class="cost-strip" id="projection-strip" aria-label="Trend and projection"></section>
+<p class="proj-note" id="projection-note"></p>
+
+<div class="grid charts">
+  <section class="panel wide"><h2>Cost per <span class="bucket-label">bucket</span></h2>
+    <div class="chart tall"><canvas id="c-ts-cost"></canvas></div></section>
+  <section class="panel wide"><h2>Input vs output tokens per <span class="bucket-label">bucket</span></h2>
+    <div class="chart tall"><canvas id="c-ts-tokens"></canvas></div></section>
+  <section class="panel"><h2>Cost by agent</h2><div class="chart tall"><canvas id="c-agent-cost"></canvas></div></section>
+  <section class="panel"><h2>Input tokens by agent</h2><div class="chart tall"><canvas id="c-agent-tokens"></canvas></div></section>
+  <section class="panel"><h2>Requests per <span class="bucket-label">bucket</span> (ok / failed)</h2>
+    <div class="chart tall"><canvas id="c-ts-requests"></canvas></div></section>
+  <section class="panel"><h2>Success rate per <span class="bucket-label">bucket</span> (%)</h2>
+    <div class="chart tall"><canvas id="c-ts-success"></canvas></div></section>
+</div>
+
 <section class="panel wide">
   <h2>Requests in selected scope</h2>
   <div class="scroll">
     <table>
       <thead><tr>
         <th>Timestamp</th><th>Req tier</th><th>Sel tier</th><th>Mode</th><th>Reason</th><th>Actual model</th>
-        <th>Latency</th><th>Cost</th><th>HTTP</th><th>OK</th><th>FB</th><th>Budget out</th>
+        <th>Agent</th><th>Latency</th><th>Cost</th><th>HTTP</th><th>OK</th><th>FB</th><th>Budget out</th>
       </tr></thead>
       <tbody id="recent-body"></tbody>
     </table>
@@ -338,7 +358,17 @@
     state.charts[id] = new Chart(canvas, config);
   }
 
-  const palette = () => [css("--chart-a"), css("--chart-b"), css("--chart-c"), css("--warn"), css("--bad")];
+  const palette = () => [
+    css("--chart-a"), css("--chart-b"), css("--chart-c"), css("--warn"), css("--bad"),
+    "#7c5cbf", "#2f8f8f", "#c2568a", "#5b8c2a", "#8a6d3b", "#4a5f8a", "#a04a4a",
+  ];
+  const agentColor = (() => {
+    const cache = new Map();
+    return (name) => {
+      if (!cache.has(name)) cache.set(name, palette()[cache.size % palette().length]);
+      return cache.get(name);
+    };
+  })();
 
   function renderCharts(summary, requests) {
     const routing = summary.routing || {};
@@ -402,6 +432,96 @@
     });
   }
 
+  function renderTimeseries(ts) {
+    const series = (ts && ts.series) || [];
+    const labels = series.map((s) => s.bucket);
+    document.querySelectorAll(".bucket-label").forEach((n) => { n.textContent = (ts && ts.bucket) || "bucket"; });
+
+    const strip = el("projection-strip");
+    strip.replaceChildren();
+    const note = el("projection-note");
+    const proj = (ts && ts.projection) || {};
+    const chip = (label, value, sub, cls) => {
+      const c = document.createElement("div");
+      c.className = "cost-chip" + (cls ? " " + cls : "");
+      const head = document.createElement("small"); head.textContent = label;
+      const v = document.createElement("div"); v.textContent = value; v.style.fontSize = "17px";
+      const foot = document.createElement("small"); foot.textContent = sub || "";
+      c.append(head, v, foot);
+      return c;
+    };
+    const k = (v, d) => (v === null || v === undefined ? "–"
+      : Number(v).toLocaleString("en-US", { maximumFractionDigits: d }));
+    if (!proj.available) {
+      strip.append(chip("Projection", "–", proj.reason || "not enough data"));
+      note.textContent = "";
+    } else {
+      const c = proj.cost || {}, t = proj.input_tokens || {};
+      const slope = c.per_day_trend_slope || 0;
+      strip.append(
+        chip("Cost / day", money(c.per_day_recent_mean), `mean of ${proj.days_observed} days`, "trend"),
+        chip("Cost trend / day", (slope >= 0 ? "+" : "") + money(slope), "least-squares slope", "trend"),
+        chip("Projected 7-day cost", money((c.next_7_days || {}).linear_trend),
+          `flat-rate alt ${money((c.next_7_days || {}).recent_mean)}`, "proj"),
+        chip("Projected 30-day cost", money((c.next_30_days || {}).linear_trend),
+          `flat-rate alt ${money((c.next_30_days || {}).recent_mean)}`, "proj"),
+        chip("Input tokens / day", k((t.per_day_recent_mean || 0) / 1000, 1) + "k", "mean", "trend"),
+        chip("Projected 30-day tokens", k(((t.next_30_days || {}).linear_trend || 0) / 1000, 0) + "k",
+          "input, trend", "proj"),
+      );
+      note.textContent = "Projection (" + (proj.confidence || "?") + " confidence): " +
+        (proj.method || "") + " " + ((proj.warnings || []).join(" ")) +
+        " Extrapolation only - it assumes recent behaviour continues.";
+    }
+
+    const area = (id, values, color, digits, fill) => chartConfig(id, {
+      type: "line",
+      data: { labels, datasets: [{ data: values, borderColor: color,
+        backgroundColor: fill ? color + "33" : color, fill: !!fill, borderWidth: 2,
+        pointRadius: series.length > 90 ? 0 : 2.5, tension: 0.25, spanGaps: true }] },
+      options: { plugins: { legend: { display: false } },
+        scales: { x: { ticks: { color: css("--muted"), maxTicksLimit: 12 }, grid: { display: false } },
+          y: { ticks: { color: css("--muted"), callback: (v) => Number(v).toFixed(digits) },
+               grid: { color: css("--grid") } } } },
+    });
+    area("c-ts-cost", series.map((s) => s.cost), css("--chart-a"), 4, true);
+
+    chartConfig("c-ts-tokens", {
+      type: "line",
+      data: { labels, datasets: [
+        { label: "input", data: series.map((s) => s.input_tokens), borderColor: css("--chart-b"),
+          backgroundColor: css("--chart-b") + "22", fill: true, borderWidth: 2, pointRadius: 0, tension: 0.25 },
+        { label: "output", data: series.map((s) => s.output_tokens), borderColor: css("--chart-c"),
+          backgroundColor: "transparent", fill: false, borderWidth: 2, pointRadius: 0, tension: 0.25 }] },
+      options: { scales: { x: { ticks: { color: css("--muted"), maxTicksLimit: 12 }, grid: { display: false } },
+        y: { ticks: { color: css("--muted") }, grid: { color: css("--grid") } } } },
+    });
+
+    const agents = Object.entries((ts && ts.agents) || {});
+    const hbar = (id, pick, fmt) => chartConfig(id, {
+      type: "bar",
+      data: { labels: agents.map(([a]) => a), datasets: [{ data: agents.map(([, v]) => pick(v)),
+        backgroundColor: agents.map(([a]) => agentColor(a)), borderWidth: 0 }] },
+      options: { indexAxis: "y", plugins: { legend: { display: false } },
+        scales: { x: { ticks: { color: css("--muted"), callback: fmt }, grid: { color: css("--grid") } },
+          y: { ticks: { color: css("--ink"), font: { size: 11 } }, grid: { display: false } } } },
+    });
+    hbar("c-agent-cost", (v) => v.cost, (v) => Number(v).toFixed(4));
+    hbar("c-agent-tokens", (v) => v.input_tokens, (v) => (Number(v) / 1000).toFixed(0) + "k");
+
+    chartConfig("c-ts-requests", {
+      type: "bar",
+      data: { labels, datasets: [
+        { label: "ok", data: series.map((s) => s.ok), backgroundColor: css("--chart-a"), borderWidth: 0, stack: "s" },
+        { label: "failed", data: series.map((s) => s.failed), backgroundColor: css("--bad"), borderWidth: 0, stack: "s" }] },
+      options: { scales: { x: { stacked: true, ticks: { color: css("--muted"), maxTicksLimit: 12 }, grid: { display: false } },
+        y: { stacked: true, ticks: { color: css("--muted"), precision: 0 }, grid: { color: css("--grid") } } } },
+    });
+
+    area("c-ts-success", series.map((s) => (s.requests ? (s.ok * 100 / s.requests) : null)),
+      css("--chart-b"), 0, false);
+  }
+
   function renderTable(requests) {
     const body = el("recent-body");
     body.replaceChildren();
@@ -415,6 +535,7 @@
         [request.routing_automatic === null || request.routing_automatic === undefined ? "–" : (Number(request.routing_automatic) === 1 ? "automatic" : "explicit")],
         [request.routing_reason ?? "–"],
         [request.actual_model ?? "–"],
+        [request.agent ?? "–"],
         [request.latency_ms === null || request.latency_ms === undefined ? "–" : num(request.latency_ms) + " ms"],
         [request.estimated_cost === null || request.estimated_cost === undefined ? "–" : money(request.estimated_cost)],
         [String(request.http_status ?? "–")],
@@ -425,7 +546,7 @@
       cells.forEach(([text, tone], index) => {
         const td = document.createElement("td");
         td.textContent = text;
-        if (index === 9 || index === 11) td.className = text === "no" ? "no" : "yes";
+        if (index === 10 || index === 12) td.className = text === "no" ? "no" : "yes";
         tr.append(td);
       });
       body.append(tr);
@@ -481,6 +602,12 @@
       }
       const summary = await summaryResponse.json();
       const payload = await recentResponse.json();
+      let timeseries = null;
+      try {
+        const tsResponse = await fetch(`/api/dashboard/timeseries?${summaryParams}`,
+          { headers: { accept: "application/json" } });
+        if (tsResponse.ok) timeseries = await tsResponse.json();
+      } catch { timeseries = null; }
       showBanner("");
       renderHealth(summary.health);
       renderCards(summary.cards);
@@ -488,6 +615,7 @@
       renderRouting(summary);
       renderTable(payload.requests || []);
       renderCharts(summary, payload.requests || []);
+      renderTimeseries(timeseries);
       if (selected === "since_snapshot") renderSnapshotContext(summary.window?.snapshot, summary.window?.requests_since_snapshot);
       else renderSnapshotContext(null, 0);
       el("updated").textContent = new Date().toLocaleTimeString();
