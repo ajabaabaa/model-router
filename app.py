@@ -102,7 +102,15 @@ def select_tier(body: dict[str, Any]) -> tuple[Any, Any, str, bool, str | None]:
         selected_tier, reason = classify_automatic_tier(body)
         return requested_tier, selected_tier, reason, True, None
     base, sep, tag = str(requested_tier).partition("#")
-    return base, base, "explicit_tier", False, (tag.strip() or None) if sep else None
+    # Tolerate OpenAI-style provider prefixes ("slug/balanced", "a/b/balanced"): clients
+    # such as OpenHuman re-send the provider slug they stored, which is not a tier name.
+    prefix = base.split("/", 1)[0] if "/" in base else None
+    if prefix:
+        base = base.rsplit("/", 1)[-1]
+    # An explicit "#tag" wins; otherwise the provider prefix attributes the caller
+    # (OpenHuman sends no tag, so this is the only way its cost is separable).
+    attribution = (tag.strip() or None) if sep else prefix
+    return base, base, "explicit_tier", False, attribution
 
 app = FastAPI(title="openclaw-router", version="0.1.0")
 init_db()

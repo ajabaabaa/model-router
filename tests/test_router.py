@@ -601,6 +601,25 @@ def test_agent_suffix_selects_same_tier_and_reports_caller():
     assert app.select_tier(_user_body("x", "auto"))[4] is None
 
 
+def test_provider_prefixed_model_ids_resolve_to_their_tier():
+    """Clients that re-send a stored provider slug (OpenHuman, OpenClaw) must not 400.
+    The first element is the NORMALIZED requested tier, matching how '#tag' is stripped."""
+    assert app.select_tier(_user_body("x", "openclaw-router/balanced")) == (
+        "balanced", "balanced", "explicit_tier", False, "openclaw-router")
+    assert app.select_tier(_user_body("x", "some-slug/fast"))[1] == "fast"
+    assert app.select_tier(_user_body("x", "some-slug/fast"))[4] == "some-slug"
+    assert app.select_tier(_user_body("x", "a/b/deep"))[1] == "deep"
+    # An untagged provider-prefixed id attributes to the prefix, so OpenHuman-style
+    # clients are separable in telemetry without sending a '#tag'.
+    assert app.select_tier(_user_body("x", "router-local/balanced"))[4] == "router-local"
+    # Prefix and attribution suffix compose.
+    assert app.select_tier(_user_body("x", "openhuman/balanced#openhuman")) == (
+        "balanced", "balanced", "explicit_tier", False, "openhuman")
+    # OpenClaw's existing provider-prefixed, tagged form is unchanged.
+    assert app.select_tier(_user_body("x", "router-local/balanced#xxpress"))[1] == "balanced"
+    assert app.select_tier(_user_body("x", "router-local/balanced#xxpress"))[4] == "xxpress"
+
+
 def test_automatic_route_applies_tier_reasoning_and_private_decision_telemetry(monkeypatch, tmp_path):
     monkeypatch.setattr(app, "DB_PATH", tmp_path / "telemetry.db"); app.init_db(); monkeypatch.setenv("OPENROUTER_KEY", "test-key")
     calls = []
