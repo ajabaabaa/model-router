@@ -28,25 +28,26 @@ def init_db() -> None:
             estimated_cost REAL, http_status INTEGER NOT NULL, success INTEGER NOT NULL,
             fallback_count INTEGER NOT NULL DEFAULT 0)""")
         columns = {row[1] for row in db.execute("PRAGMA table_info(telemetry)")}
-        for name in ("agent", "session_id", "project", "task_type", "request_has_stream", "upstream_content_type", "exception_class", "upstream_http_status", "request_has_tools", "request_has_tool_choice", "total_budget_ms", "budget_exhausted", "remaining_budget_ms", "attempted_models", "finish_reason", "requested_tier", "routing_reason", "routing_automatic"):
+        for name in ("agent", "session_id", "project", "task_type", "request_has_stream", "upstream_content_type", "exception_class", "upstream_http_status", "request_has_tools", "request_has_tool_choice", "total_budget_ms", "budget_exhausted", "remaining_budget_ms", "attempted_models", "attempt_outcomes", "finish_reason", "requested_tier", "routing_reason", "routing_automatic"):
             if name not in columns:
                 db.execute(f"ALTER TABLE telemetry ADD COLUMN {name} {'INTEGER' if name.startswith('request_has_') or name in ('budget_exhausted', 'routing_automatic') else 'REAL' if name.endswith('_ms') else 'TEXT'}")
         db.commit()
 
 def record_telemetry(row: dict[str, Any]) -> None:
-    row.setdefault("total_budget_ms", None); row.setdefault("budget_exhausted", None); row.setdefault("remaining_budget_ms", None); row.setdefault("attempted_models", None); row.setdefault("finish_reason", None)
+    row.setdefault("total_budget_ms", None); row.setdefault("budget_exhausted", None); row.setdefault("remaining_budget_ms", None)
+    row.setdefault("attempted_models", None); row.setdefault("attempt_outcomes", None); row.setdefault("finish_reason", None)
     row.setdefault("requested_tier", None); row.setdefault("routing_reason", None); row.setdefault("routing_automatic", None)
     with sqlite3.connect(DB_PATH) as db:
         db.execute("""INSERT INTO telemetry
             (timestamp, request_id, selected_tier, actual_model, input_tokens,
             output_tokens, latency_ms, estimated_cost, http_status, success, fallback_count,
             agent, session_id, project, task_type, request_has_stream, upstream_content_type,
-            exception_class, upstream_http_status, request_has_tools, request_has_tool_choice, total_budget_ms, budget_exhausted, remaining_budget_ms, attempted_models, finish_reason, requested_tier, routing_reason, routing_automatic)
+            exception_class, upstream_http_status, request_has_tools, request_has_tool_choice, total_budget_ms, budget_exhausted, remaining_budget_ms, attempted_models, attempt_outcomes, finish_reason, requested_tier, routing_reason, routing_automatic)
             VALUES (:timestamp, :request_id, :selected_tier, :actual_model, :input_tokens,
                     :output_tokens, :latency_ms, :estimated_cost, :http_status, :success,
                     :fallback_count, :agent, :session_id, :project, :task_type, :request_has_stream,
                     :upstream_content_type, :exception_class, :upstream_http_status, :request_has_tools,
-                    :request_has_tool_choice, :total_budget_ms, :budget_exhausted, :remaining_budget_ms, :attempted_models, :finish_reason, :requested_tier, :routing_reason, :routing_automatic)""", row)
+                    :request_has_tool_choice, :total_budget_ms, :budget_exhausted, :remaining_budget_ms, :attempted_models, :attempt_outcomes, :finish_reason, :requested_tier, :routing_reason, :routing_automatic)""", row)
         db.commit()
 
 def api_key() -> str | None:
@@ -190,7 +191,20 @@ async def chat_completions(request: Request):
     request_has_stream = request_has_tools = request_has_tool_choice = None
     upstream_content_type = exception_class = upstream_http_status = finish_reason = None
     total_budget_ms = budget_exhausted = remaining_budget_ms = None
-    attempted_models = []
+    budget_deadline = None
+    attempted_models = []; attempt_outcomes = []
+    def budget_remaining() -> float | None:
+        value = calculate_remaining_budget_ms(budget_deadline)
+        return None if value is None else value / 1000
+    def note_attempt(model: str, outcome: str, status_code: int | None = None, exception: str | None = None) -> None:
+        """Record what each upstream attempt actually returned.
+
+        `upstream_http_status` holds one value and every attempt overwrites it, so on a
+        request that falls back it reports only the successful last attempt - the primary's
+        failure is erased. This list is what makes a fallback burst diagnosable.
+        """
+        attempt_outcomes.append({"model": model, "outcome": outcome,
+                                 "http_status": status_code, "exception": exception})
     metadata = {"agent": request.headers.get("x-openclaw-agent"), "session_id": request.headers.get("x-openclaw-session"),
                 "project": request.headers.get("x-openclaw-project"), "task_type": request.headers.get("x-task-type")}
     try:
@@ -200,15 +214,11 @@ async def chat_completions(request: Request):
         budget_header = request.headers.get("x-router-total-budget-ms")
         attempt_budget_header = request.headers.get("x-router-benchmark-attempt-budgets-ms")
         attempt_budgets = [float(x) / 1000 for x in attempt_budget_header.split(",") if x.strip()] if attempt_budget_header else None
-        budget_deadline = None
         if budget_header is not None:
             total_budget_ms = float(budget_header)
             if total_budget_ms <= 0: raise ValueError("total budget must be positive")
             budget_exhausted = 0
             budget_deadline = started + total_budget_ms / 1000
-        def budget_remaining() -> float | None:
-            value = calculate_remaining_budget_ms(budget_deadline)
-            return None if value is None else value / 1000
         request_has_stream = int(body.get("stream") is True); request_has_tools = int(bool(body.get("tools")))
         request_has_tool_choice = int("tool_choice" in body and body.get("tool_choice") is not None)
         cfg = load_config(); tier_cfg = cfg["tiers"].get(tier)
@@ -244,24 +254,26 @@ async def chat_completions(request: Request):
                             async with asyncio.timeout(attempt_timeout):
                                 upstream = await client.post(url, headers=headers, json=upstream_body)
                     except TimeoutError:
-                        exception_class = "TimeoutError"
+                        exception_class = "TimeoutError"; note_attempt(model, "timeout", None, "TimeoutError")
                         remaining_after_timeout = budget_remaining()
                         if remaining_after_timeout and index < len(models) - 1 and (not attempt_budgets or index + 1 >= len(attempt_budgets) or attempt_budgets[index + 1] <= remaining_after_timeout):
                             fallback_count += 1; continue
                         budget_exhausted = 1 if not remaining_after_timeout else 0; remaining_budget_ms = max(0.0, (remaining_after_timeout or 0) * 1000); status = 504
                         return JSONResponse({"error":{"message":"total request budget exhausted" if budget_exhausted else "no viable fallback attempt remains","type":"timeout_error"},"attempted_models":attempted_models,"fallback_count":fallback_count,"budget_exhausted":bool(budget_exhausted),"remaining_budget_ms":remaining_budget_ms}, status_code=status)
                     except httpx.HTTPError as exc:
-                        exception_class = exc.__class__.__name__; status = 502
+                        exception_class = exc.__class__.__name__; status = 502; note_attempt(model, "error", None, exception_class)
                         if index < len(models)-1: fallback_count += 1; continue
                         return JSONResponse({"error":{"message":"upstream request failed","type":"upstream_error"}}, status_code=502)
                     status = upstream.status_code; upstream_http_status = status; upstream_content_type = getattr(upstream,"headers",{}).get("content-type")
                     if 200 <= status < 300:
+                        note_attempt(model, "served", status)
                         response = upstream.json(); usage = response.get("usage") or {}; input_tokens=usage.get("prompt_tokens"); output_tokens=usage.get("completion_tokens"); estimated_cost=usage.get("cost"); finish_reason=((response.get("choices") or [{}])[0] or {}).get("finish_reason"); success=True
                         response["attempted_models"] = attempted_models
                         response["fallback_count"] = fallback_count
                         response["budget_exhausted"] = bool(budget_exhausted)
                         response["remaining_budget_ms"] = budget_remaining() * 1000 if budget_remaining() is not None else None
                         return JSONResponse(response, status_code=status)
+                    note_attempt(model, "rejected", status)
                     if not retryable_status(status) or index == len(models)-1: return error_response(upstream, status)
                     fallback_count += 1
                 return JSONResponse({"error":{"message":"all configured models failed","type":"upstream_error"}}, status_code=502)
@@ -285,6 +297,7 @@ async def chat_completions(request: Request):
                     status = upstream.status_code; upstream_http_status = status; upstream_content_type = upstream.headers.get("content-type")
                     if not 200 <= status < 300:
                         await upstream.aread(); await cm.__aexit__(None,None,None)
+                        note_attempt(model, "rejected", status)
                         if not retryable_status(status) or index == len(models)-1: return error_response(upstream, status)
                         fallback_count += 1; continue
                     iterator = upstream.aiter_bytes()
@@ -293,15 +306,19 @@ async def chat_completions(request: Request):
                     else:
                         async with asyncio.timeout(budget_remaining() or 0):
                             first = await iterator.__anext__()
+                    note_attempt(model, "served", status)
                     selected = (cm, upstream, iterator, first); break
                 except StopAsyncIteration:
+                    note_attempt(model, "empty_stream", status)
                     if index == len(models)-1: return JSONResponse({"error":{"message":"upstream returned an empty stream","type":"upstream_error"}}, status_code=502)
                     fallback_count += 1
                 except TimeoutError:
                     budget_exhausted = 1; remaining_budget_ms = 0; status = 504; exception_class = "TimeoutError"
+                    note_attempt(model, "timeout", None, "TimeoutError")
                     return JSONResponse({"error":{"message":"total request budget exhausted","type":"timeout_error"}}, status_code=status)
                 except httpx.HTTPError as exc:
                     exception_class = exc.__class__.__name__; status = 502
+                    note_attempt(model, "error", None, exception_class)
                     if index == len(models)-1: return JSONResponse({"error":{"message":"upstream request failed","type":"upstream_error"}}, status_code=502)
                     fallback_count += 1
             if selected is None:
@@ -340,7 +357,7 @@ async def chat_completions(request: Request):
                     capture_usage(b"", final=True)
                     await cm.__aexit__(None,None,None)
                     await close_client(stream_client)
-                    record_telemetry({"timestamp":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),"request_id":request_id,"selected_tier":tier,"requested_tier":requested_tier,"routing_reason":routing_reason,"routing_automatic":int(routing_automatic) if routing_automatic is not None else None,"actual_model":actual_model,"input_tokens":input_tokens,"output_tokens":output_tokens,"latency_ms":round((time.perf_counter()-started)*1000,2),"estimated_cost":estimated_cost,"http_status":status,"success":int(success),"fallback_count":fallback_count,"request_has_stream":request_has_stream,"upstream_content_type":upstream_content_type,"exception_class":exception_class,"upstream_http_status":upstream_http_status,"request_has_tools":request_has_tools,"request_has_tool_choice":request_has_tool_choice,"total_budget_ms":total_budget_ms,"budget_exhausted":budget_exhausted,"remaining_budget_ms":budget_remaining()*1000 if budget_remaining() is not None else None,"attempted_models":json.dumps(attempted_models),"finish_reason":finish_reason,**metadata})
+                    record_telemetry({"timestamp":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),"request_id":request_id,"selected_tier":tier,"requested_tier":requested_tier,"routing_reason":routing_reason,"routing_automatic":int(routing_automatic) if routing_automatic is not None else None,"actual_model":actual_model,"input_tokens":input_tokens,"output_tokens":output_tokens,"latency_ms":round((time.perf_counter()-started)*1000,2),"estimated_cost":estimated_cost,"http_status":status,"success":int(success),"fallback_count":fallback_count,"request_has_stream":request_has_stream,"upstream_content_type":upstream_content_type,"exception_class":exception_class,"upstream_http_status":upstream_http_status,"request_has_tools":request_has_tools,"request_has_tool_choice":request_has_tool_choice,"total_budget_ms":total_budget_ms,"budget_exhausted":budget_exhausted,"remaining_budget_ms":budget_remaining()*1000 if budget_remaining() is not None else None,"attempted_models":json.dumps(attempted_models),"attempt_outcomes":json.dumps(attempt_outcomes),"finish_reason":finish_reason,**metadata})
             return StreamingResponse(stream_body(), media_type="text/event-stream", status_code=200, headers={"Cache-Control":"no-cache","Connection":"keep-alive"})
     except (httpx.HTTPError, TimeoutError, ValueError, json.JSONDecodeError) as exc:
         exception_class = exc.__class__.__name__; status = 504 if isinstance(exc, TimeoutError) else 502
@@ -350,4 +367,4 @@ async def chat_completions(request: Request):
         if not request_has_stream or 'selected' not in locals() or selected is None:
             if request_has_stream and stream_client is not None:
                 await close_client(stream_client)
-            record_telemetry({"timestamp":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),"request_id":request_id,"selected_tier":tier,"requested_tier":requested_tier,"routing_reason":routing_reason,"routing_automatic":int(routing_automatic) if routing_automatic is not None else None,"actual_model":actual_model,"input_tokens":input_tokens,"output_tokens":output_tokens,"latency_ms":round((time.perf_counter()-started)*1000,2),"estimated_cost":estimated_cost,"http_status":status,"success":int(success),"fallback_count":fallback_count,"request_has_stream":request_has_stream,"upstream_content_type":upstream_content_type,"exception_class":exception_class,"upstream_http_status":upstream_http_status,"request_has_tools":request_has_tools,"request_has_tool_choice":request_has_tool_choice,"total_budget_ms":total_budget_ms,"budget_exhausted":budget_exhausted,"remaining_budget_ms":budget_remaining()*1000 if budget_remaining() is not None else None,"attempted_models":json.dumps(attempted_models),"finish_reason":finish_reason,**metadata})
+            record_telemetry({"timestamp":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),"request_id":request_id,"selected_tier":tier,"requested_tier":requested_tier,"routing_reason":routing_reason,"routing_automatic":int(routing_automatic) if routing_automatic is not None else None,"actual_model":actual_model,"input_tokens":input_tokens,"output_tokens":output_tokens,"latency_ms":round((time.perf_counter()-started)*1000,2),"estimated_cost":estimated_cost,"http_status":status,"success":int(success),"fallback_count":fallback_count,"request_has_stream":request_has_stream,"upstream_content_type":upstream_content_type,"exception_class":exception_class,"upstream_http_status":upstream_http_status,"request_has_tools":request_has_tools,"request_has_tool_choice":request_has_tool_choice,"total_budget_ms":total_budget_ms,"budget_exhausted":budget_exhausted,"remaining_budget_ms":budget_remaining()*1000 if budget_remaining() is not None else None,"attempted_models":json.dumps(attempted_models),"attempt_outcomes":json.dumps(attempt_outcomes),"finish_reason":finish_reason,**metadata})

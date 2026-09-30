@@ -410,6 +410,127 @@ def test_sse_lines_buffers_only_the_unterminated_tail():
     assert bytes(buffer) == b""
     assert app.sse_lines(buffer, b"", final=True) == []
 
+
+def recorded_attempt_outcomes(db_path):
+    with sqlite3.connect(db_path) as db:
+        raw = db.execute("SELECT attempt_outcomes FROM telemetry").fetchone()[0]
+    return json.loads(raw) if raw else None
+
+
+def streaming_client(monkeypatch, tmp_path, status_for_attempt, chunks_for_attempt):
+    """Route streamed attempts whose i-th call returns the given status and body chunks."""
+    monkeypatch.setattr(app, "DB_PATH", tmp_path / "telemetry.db"); app.init_db(); monkeypatch.setenv("OPENROUTER_KEY", "test-key")
+    calls = []
+    class StreamResponse:
+        def __init__(self, index):
+            self.index = index; self.status_code = status_for_attempt(index)
+            self.headers = {"content-type": "text/event-stream"}
+        async def __aenter__(self): return self
+        async def __aexit__(self, *args): pass
+        async def aiter_bytes(self):
+            for chunk in chunks_for_attempt(self.index): yield chunk
+        async def aread(self): return b"{}"
+    class FakeClient:
+        def __init__(self, **kwargs): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *args): pass
+        def stream(self, *args, **kwargs): calls.append(kwargs["json"]["model"]); return StreamResponse(len(calls) - 1)
+    monkeypatch.setattr(app.httpx, "AsyncClient", FakeClient)
+    return calls
+
+def fast_primary(): return app.load_config()["tiers"]["fast"]["primary"]
+def fast_fallback(): return app.load_config()["tiers"]["fast"]["fallbacks"][0]
+
+def test_streaming_fallback_keeps_the_primary_status_the_last_attempt_used_to_erase(monkeypatch, tmp_path):
+    """`upstream_http_status` holds one value, so a fallback overwrote the primary's failure."""
+    streaming_client(monkeypatch, tmp_path, lambda i: 503 if i == 0 else 200,
+                     lambda i: [b"data: [DONE]\n\n"] if i else [])
+    r = TestClient(app.app).post("/v1/chat/completions", json={"model": "fast", "stream": True, "messages": []})
+    assert r.status_code == 200
+    assert recorded_attempt_outcomes(tmp_path / "telemetry.db") == [
+        {"model": fast_primary(), "outcome": "rejected", "http_status": 503, "exception": None},
+        {"model": fast_fallback(), "outcome": "served", "http_status": 200, "exception": None},
+    ]
+    with sqlite3.connect(tmp_path / "telemetry.db") as db:
+        stored = db.execute("SELECT upstream_http_status FROM telemetry").fetchone()[0]
+    # The column has TEXT affinity (init_db types anything not ending _ms as TEXT); the
+    # point of the assertion is which attempt's status survived, not the storage class.
+    assert int(stored) == 200
+
+def test_streaming_empty_200_is_recorded_as_its_own_outcome(monkeypatch, tmp_path):
+    """A primary that connects, returns 200 and yields zero chunks is not the same fault as a 5xx."""
+    streaming_client(monkeypatch, tmp_path, lambda i: 200, lambda i: [] if i == 0 else [b"data: [DONE]\n\n"])
+    r = TestClient(app.app).post("/v1/chat/completions", json={"model": "fast", "stream": True, "messages": []})
+    assert r.status_code == 200
+    outcomes = recorded_attempt_outcomes(tmp_path / "telemetry.db")
+    assert outcomes[0] == {"model": fast_primary(), "outcome": "empty_stream", "http_status": 200, "exception": None}
+    assert outcomes[1]["outcome"] == "served"
+    with sqlite3.connect(tmp_path / "telemetry.db") as db:
+        assert db.execute("SELECT fallback_count, success FROM telemetry").fetchone() == (1, 1)
+
+def test_streaming_upstream_exception_is_named_per_attempt(monkeypatch, tmp_path):
+    def chunks(i):
+        if i == 0: raise app.httpx.ConnectError("nope")
+        return [b"data: [DONE]\n\n"]
+    streaming_client(monkeypatch, tmp_path, lambda i: 200, chunks)
+    r = TestClient(app.app).post("/v1/chat/completions", json={"model": "fast", "stream": True, "messages": []})
+    assert r.status_code == 200
+    outcomes = recorded_attempt_outcomes(tmp_path / "telemetry.db")
+    assert outcomes[0] == {"model": fast_primary(), "outcome": "error", "http_status": None, "exception": "ConnectError"}
+
+def test_non_streaming_fallback_records_both_attempts(monkeypatch, tmp_path):
+    monkeypatch.setattr(app, "DB_PATH", tmp_path / "telemetry.db"); app.init_db(); monkeypatch.setenv("OPENROUTER_KEY", "test-key")
+    calls = []
+    class Response:
+        def __init__(self, index):
+            self.status_code = 429 if index == 0 else 200
+            self.headers = {"content-type": "application/json"}
+        def json(self):
+            return {"choices": [{"finish_reason": "stop"}], "usage": {"prompt_tokens": 4, "completion_tokens": 2, "cost": 0.01}}
+        async def aread(self): return b""
+    class Client:
+        def __init__(self, **kwargs): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *args): pass
+        async def post(self, *args, **kwargs): calls.append(kwargs["json"]["model"]); return Response(len(calls) - 1)
+    monkeypatch.setattr(app.httpx, "AsyncClient", Client)
+    r = TestClient(app.app).post("/v1/chat/completions", json={"model": "fast", "messages": []})
+    assert r.status_code == 200
+    assert recorded_attempt_outcomes(tmp_path / "telemetry.db") == [
+        {"model": fast_primary(), "outcome": "rejected", "http_status": 429, "exception": None},
+        {"model": fast_fallback(), "outcome": "served", "http_status": 200, "exception": None},
+    ]
+
+def test_a_clean_single_attempt_records_exactly_one_outcome(monkeypatch, tmp_path):
+    streaming_client(monkeypatch, tmp_path, lambda i: 200, lambda i: [b"data: [DONE]\n\n"])
+    TestClient(app.app).post("/v1/chat/completions", json={"model": "fast", "stream": True, "messages": []})
+    assert recorded_attempt_outcomes(tmp_path / "telemetry.db") == [
+        {"model": fast_primary(), "outcome": "served", "http_status": 200, "exception": None}]
+
+def test_malformed_request_body_records_telemetry_instead_of_throwing_from_the_finally(monkeypatch, tmp_path):
+    """The outer finally reads budget_remaining(), defined after request.json() used to run."""
+    monkeypatch.setattr(app, "DB_PATH", tmp_path / "telemetry.db"); app.init_db(); monkeypatch.setenv("OPENROUTER_KEY", "test-key")
+    r = TestClient(app.app).post("/v1/chat/completions", content=b"{not json",
+                                 headers={"content-type": "application/json"})
+    assert r.status_code == 502
+    with sqlite3.connect(tmp_path / "telemetry.db") as db:
+        row = db.execute("SELECT http_status, success, attempt_outcomes FROM telemetry").fetchone()
+    assert row == (502, 0, "[]")
+
+def test_malformed_budget_headers_record_telemetry_instead_of_a_500(monkeypatch, tmp_path):
+    """float(budget_header), the <=0 guard and the attempt-budget list all raise before the old def site."""
+    monkeypatch.setattr(app, "DB_PATH", tmp_path / "telemetry.db"); app.init_db(); monkeypatch.setenv("OPENROUTER_KEY", "test-key")
+    for header in ("not-a-number", "-1", "0"):
+        r = TestClient(app.app).post("/v1/chat/completions", json={"model": "fast", "messages": []},
+                                     headers={"x-router-total-budget-ms": header})
+        assert r.status_code == 502, header
+    r = TestClient(app.app).post("/v1/chat/completions", json={"model": "fast", "messages": []},
+                                 headers={"x-router-benchmark-attempt-budgets-ms": "abc"})
+    assert r.status_code == 502
+    with sqlite3.connect(tmp_path / "telemetry.db") as db:
+        rows = db.execute("SELECT http_status, success FROM telemetry").fetchall()
+    assert len(rows) == 4 and all(row == (502, 0) for row in rows)
+
 def test_streaming_client_and_response_lifecycle(monkeypatch, tmp_path):
     monkeypatch.setattr(app, "DB_PATH", tmp_path / "telemetry.db"); app.init_db(); monkeypatch.setenv("OPENROUTER_KEY", "test-key")
     state = {"stream_client_open": False, "response_open": False, "client_closed": False, "response_closed": False, "observed_open": False, "clients": 0, "stream_owner": None}
