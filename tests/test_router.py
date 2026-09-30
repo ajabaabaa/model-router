@@ -345,6 +345,71 @@ def test_streaming_usage_absent_remains_null(monkeypatch, tmp_path):
     TestClient(app.app).post("/v1/chat/completions",json={"model":"fast","stream":True,"messages":[]})
     with sqlite3.connect(app.DB_PATH) as db: assert db.execute("SELECT input_tokens,output_tokens,estimated_cost FROM telemetry").fetchone()==(None,None,None)
 
+USAGE_EVENT = b'data: {"id":1,"usage":{"prompt_tokens":9,"completion_tokens":4,"cost":0.12},"choices":[{"finish_reason":"stop"}]}\n\n'
+
+def post_stream(monkeypatch, tmp_path, chunks):
+    """Route a streamed response whose upstream frames are exactly `chunks`."""
+    monkeypatch.setattr(app, "DB_PATH", tmp_path / "telemetry.db"); app.init_db(); monkeypatch.setenv("OPENROUTER_KEY", "test-key")
+    class Response:
+        status_code=200; headers={"content-type":"text/event-stream"}
+        async def __aenter__(self): return self
+        async def __aexit__(self,*args): pass
+        async def aiter_bytes(self):
+            for chunk in chunks: yield chunk
+        async def aread(self): return b""
+    class Client:
+        def __init__(self, **kwargs): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self,*args): pass
+        def stream(self,*args,**kwargs): return Response()
+    monkeypatch.setattr(app.httpx,"AsyncClient",Client)
+    return TestClient(app.app).post("/v1/chat/completions",json={"model":"fast","stream":True,"messages":[]})
+
+def recorded_tokens(db_path):
+    with sqlite3.connect(db_path) as db:
+        return db.execute("SELECT input_tokens,output_tokens,estimated_cost,finish_reason FROM telemetry").fetchone()
+
+def test_streaming_usage_survives_a_split_mid_usage_line(monkeypatch, tmp_path):
+    cut = len(USAGE_EVENT) // 2
+    response = post_stream(monkeypatch, tmp_path, [USAGE_EVENT[:cut], USAGE_EVENT[cut:]])
+    assert response.status_code == 200
+    assert recorded_tokens(tmp_path / "telemetry.db") == (9, 4, 0.12, "stop")
+
+def test_streaming_usage_survives_byte_by_byte_delivery(monkeypatch, tmp_path):
+    stream = USAGE_EVENT + b"data: [DONE]\n\n"
+    response = post_stream(monkeypatch, tmp_path, [stream[i:i + 1] for i in range(len(stream))])
+    assert response.status_code == 200
+    assert recorded_tokens(tmp_path / "telemetry.db") == (9, 4, 0.12, "stop")
+
+def test_streaming_usage_survives_a_split_mid_crlf_terminator(monkeypatch, tmp_path):
+    crlf = USAGE_EVENT.replace(b"\n\n", b"\r\n\r\n")
+    cut = crlf.index(b"\r\n\r\n") + 1
+    response = post_stream(monkeypatch, tmp_path, [crlf[:cut], crlf[cut:]])
+    assert response.status_code == 200
+    assert recorded_tokens(tmp_path / "telemetry.db") == (9, 4, 0.12, "stop")
+
+def test_streaming_usage_in_an_unterminated_final_line_is_still_recorded(monkeypatch, tmp_path):
+    response = post_stream(monkeypatch, tmp_path, [USAGE_EVENT.rstrip(b"\n")])
+    assert response.status_code == 200
+    assert recorded_tokens(tmp_path / "telemetry.db") == (9, 4, 0.12, "stop")
+
+def test_fragmented_streaming_usage_still_forwards_upstream_bytes_verbatim(monkeypatch, tmp_path):
+    stream = USAGE_EVENT + b"data: [DONE]\n\n"
+    chunks = [stream[i:i + 7] for i in range(0, len(stream), 7)]
+    response = post_stream(monkeypatch, tmp_path, chunks)
+    assert response.content == stream
+    assert recorded_tokens(tmp_path / "telemetry.db") == (9, 4, 0.12, "stop")
+
+def test_sse_lines_buffers_only_the_unterminated_tail():
+    buffer = bytearray()
+    assert app.sse_lines(buffer, b"data: one\nda") == ["data: one"]
+    assert bytes(buffer) == b"da"
+    assert app.sse_lines(buffer, b"ta: two\r\ndata: three\r") == ["data: two"]
+    assert bytes(buffer) == b"data: three\r"
+    assert app.sse_lines(buffer, b"\n", final=True) == ["data: three"]
+    assert bytes(buffer) == b""
+    assert app.sse_lines(buffer, b"", final=True) == []
+
 def test_streaming_client_and_response_lifecycle(monkeypatch, tmp_path):
     monkeypatch.setattr(app, "DB_PATH", tmp_path / "telemetry.db"); app.init_db(); monkeypatch.setenv("OPENROUTER_KEY", "test-key")
     state = {"stream_client_open": False, "response_open": False, "client_closed": False, "response_closed": False, "observed_open": False, "clients": 0, "stream_owner": None}

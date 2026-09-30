@@ -165,6 +165,23 @@ async def close_client(client: Any) -> None:
     else:
         await client.__aexit__(None, None, None)
 
+def sse_lines(buffer: bytearray, chunk: bytes, final: bool = False) -> list[str]:
+    """Return complete SSE lines from buffer+chunk, keeping an unterminated tail buffered.
+
+    Upstream frames are not newline-aligned, so one `data:` event can straddle two network
+    chunks; decoding each chunk in isolation loses that event's usage payload.
+    """
+    buffer.extend(chunk)
+    lines = []
+    while (cut := buffer.find(b"\n")) >= 0:
+        line = bytes(buffer[:cut]).decode("utf-8", errors="ignore").rstrip("\r")
+        del buffer[:cut + 1]
+        lines.append(line)
+    if final and buffer:
+        lines.append(bytes(buffer).decode("utf-8", errors="ignore").rstrip("\r"))
+        buffer.clear()
+    return lines
+
 @app.post("/v1/chat/completions")
 async def chat_completions(request: Request):
     started = time.perf_counter(); request_id = request.headers.get("x-request-id", str(uuid.uuid4()))
@@ -293,19 +310,23 @@ async def chat_completions(request: Request):
             cm, upstream, iterator, first = selected
             async def stream_body():
                 nonlocal success, input_tokens, output_tokens, estimated_cost, exception_class
+                sse_buffer = bytearray()
+                def consume(line: str) -> None:
+                    nonlocal input_tokens, output_tokens, estimated_cost, finish_reason
+                    if not (line.startswith("data:") and line[5:].strip() not in ("", "[DONE]")):
+                        return
+                    try:
+                        payload = json.loads(line[5:].strip())
+                    except (ValueError, json.JSONDecodeError):
+                        return
+                    usage = payload.get("usage") or {}
+                    input_tokens = usage.get("prompt_tokens", input_tokens); output_tokens = usage.get("completion_tokens", output_tokens); estimated_cost = usage.get("cost", estimated_cost)
+                    for choice in payload.get("choices") or []:
+                        if choice.get("finish_reason"): finish_reason = choice["finish_reason"]
+                def capture_usage(chunk: bytes, final: bool = False) -> None:
+                    for line in sse_lines(sse_buffer, chunk, final):
+                        consume(line)
                 try:
-                    def capture_usage(chunk: bytes) -> None:
-                        nonlocal input_tokens, output_tokens, estimated_cost, finish_reason
-                        for line in chunk.decode("utf-8", errors="ignore").splitlines():
-                            if line.startswith("data:") and line[5:].strip() not in ("", "[DONE]"):
-                                try:
-                                    payload = json.loads(line[5:].strip())
-                                    usage = payload.get("usage") or {}
-                                    input_tokens = usage.get("prompt_tokens", input_tokens); output_tokens = usage.get("completion_tokens", output_tokens); estimated_cost = usage.get("cost", estimated_cost)
-                                    for choice in payload.get("choices") or []:
-                                        if choice.get("finish_reason"): finish_reason = choice["finish_reason"]
-                                except (ValueError, json.JSONDecodeError):
-                                    pass
                     for chunk in (first,):
                         capture_usage(chunk)
                         yield chunk
@@ -316,6 +337,7 @@ async def chat_completions(request: Request):
                 except httpx.HTTPError as exc:
                     exception_class = exc.__class__.__name__; success = False
                 finally:
+                    capture_usage(b"", final=True)
                     await cm.__aexit__(None,None,None)
                     await close_client(stream_client)
                     record_telemetry({"timestamp":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),"request_id":request_id,"selected_tier":tier,"requested_tier":requested_tier,"routing_reason":routing_reason,"routing_automatic":int(routing_automatic) if routing_automatic is not None else None,"actual_model":actual_model,"input_tokens":input_tokens,"output_tokens":output_tokens,"latency_ms":round((time.perf_counter()-started)*1000,2),"estimated_cost":estimated_cost,"http_status":status,"success":int(success),"fallback_count":fallback_count,"request_has_stream":request_has_stream,"upstream_content_type":upstream_content_type,"exception_class":exception_class,"upstream_http_status":upstream_http_status,"request_has_tools":request_has_tools,"request_has_tool_choice":request_has_tool_choice,"total_budget_ms":total_budget_ms,"budget_exhausted":budget_exhausted,"remaining_budget_ms":budget_remaining()*1000 if budget_remaining() is not None else None,"attempted_models":json.dumps(attempted_models),"finish_reason":finish_reason,**metadata})

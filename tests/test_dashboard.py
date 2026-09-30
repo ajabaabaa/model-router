@@ -233,6 +233,28 @@ def test_dashboard_page_and_chart_asset_are_served(client):
     assert len(script.content) > 100_000
 
 
+def token_chart_block(page_text):
+    start = page_text.index('chartConfig("c-ts-tokens"')
+    return page_text[start:page_text.index("const agents = Object.entries", start)]
+
+
+def test_token_chart_puts_output_on_its_own_right_hand_axis(client):
+    """Input runs ~70x output, so a shared linear axis renders output as a flat zero line."""
+    block = token_chart_block(client.get("/dashboard").text)
+    before_output, after_output = block.split('label: "output (right axis)"')
+    assert 'yAxisID: "y"' in before_output
+    assert 'yAxisID: "y1"' in after_output
+    assert 'y1: {' in block and 'position: "right"' in block
+    assert "drawOnChartArea: false" in block, "second axis must not overdraw the first axis' grid"
+
+
+def test_token_chart_labels_both_axes_for_the_reader(client):
+    page = client.get("/dashboard").text
+    block = token_chart_block(page)
+    assert "separate axes" in page
+    assert 'text: "input"' in block and 'text: "output"' in block
+
+
 def test_dashboard_fault_does_not_affect_model_routing(monkeypatch, tmp_path):
     path = tmp_path / "telemetry.db"
     monkeypatch.setattr(app, "DB_PATH", path)

@@ -164,7 +164,7 @@
 <div class="grid charts">
   <section class="panel wide"><h2>Cost per <span class="bucket-label">bucket</span></h2>
     <div class="chart tall"><canvas id="c-ts-cost"></canvas></div></section>
-  <section class="panel wide"><h2>Input vs output tokens per <span class="bucket-label">bucket</span></h2>
+  <section class="panel wide"><h2>Input vs output tokens per <span class="bucket-label">bucket</span> (separate axes)</h2>
     <div class="chart tall"><canvas id="c-ts-tokens"></canvas></div></section>
   <section class="panel"><h2>Cost by agent</h2><div class="chart tall"><canvas id="c-agent-cost"></canvas></div></section>
   <section class="panel"><h2>Input tokens by agent</h2><div class="chart tall"><canvas id="c-agent-tokens"></canvas></div></section>
@@ -486,15 +486,28 @@
     });
     area("c-ts-cost", series.map((s) => s.cost), css("--chart-a"), 4, true);
 
+    const tokenTick = (v) => {
+      const n = Number(v);
+      if (!Number.isFinite(n)) return v;
+      return n >= 1000 ? (n / 1000).toFixed(n >= 100000 ? 0 : 1) + "k" : String(n);
+    };
     chartConfig("c-ts-tokens", {
       type: "line",
       data: { labels, datasets: [
-        { label: "input", data: series.map((s) => s.input_tokens), borderColor: css("--chart-b"),
-          backgroundColor: css("--chart-b") + "22", fill: true, borderWidth: 2, pointRadius: 0, tension: 0.25 },
-        { label: "output", data: series.map((s) => s.output_tokens), borderColor: css("--chart-c"),
-          backgroundColor: "transparent", fill: false, borderWidth: 2, pointRadius: 0, tension: 0.25 }] },
-      options: { scales: { x: { ticks: { color: css("--muted"), maxTicksLimit: 12 }, grid: { display: false } },
-        y: { ticks: { color: css("--muted") }, grid: { color: css("--grid") } } } },
+        { label: "input (left axis)", data: series.map((s) => s.input_tokens), borderColor: css("--chart-b"),
+          backgroundColor: css("--chart-b") + "22", fill: true, borderWidth: 2, pointRadius: 0, tension: 0.25,
+          yAxisID: "y" },
+        { label: "output (right axis)", data: series.map((s) => s.output_tokens), borderColor: css("--chart-c"),
+          backgroundColor: "transparent", fill: false, borderWidth: 2, pointRadius: 0, tension: 0.25,
+          yAxisID: "y1" }] },
+      options: { scales: {
+        x: { ticks: { color: css("--muted"), maxTicksLimit: 12 }, grid: { display: false } },
+        y: { type: "linear", position: "left", beginAtZero: true,
+          ticks: { color: css("--chart-b"), callback: tokenTick }, grid: { color: css("--grid") },
+          title: { display: true, text: "input", color: css("--chart-b"), font: { size: 10 } } },
+        y1: { type: "linear", position: "right", beginAtZero: true,
+          ticks: { color: css("--chart-c"), callback: tokenTick }, grid: { drawOnChartArea: false },
+          title: { display: true, text: "output", color: css("--chart-c"), font: { size: 10 } } } } },
     });
 
     const agents = Object.entries((ts && ts.agents) || {});
