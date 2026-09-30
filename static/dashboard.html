@@ -23,6 +23,8 @@
     font: 13px/1.45 ui-sans-serif, system-ui, "Segoe UI", Roboto, Arial, sans-serif; }
   h1 { font-size: 17px; margin: 0; letter-spacing: .2px; }
   h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .7px; color: var(--muted); margin: 0 0 8px; }
+  h2 select, h2 label { text-transform: none; letter-spacing: 0; font-weight: 400; }
+  h2 label { gap: 4px; }
   header { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 14px; }
   .pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: 999px;
     border: 1px solid var(--line); background: var(--panel); font-size: 12px; }
@@ -84,10 +86,10 @@
       <select id="scope">
         <option value="recent_25">Recent 25</option>
         <option value="recent_50">Recent 50</option>
-        <option value="recent_100" selected>Recent 100</option>
+        <option value="recent_100">Recent 100</option>
         <option value="recent_500">Recent 500</option>
         <option value="today">Today (router local time)</option>
-        <option value="last_24_hours">Last 24 hours</option>
+        <option value="last_24_hours" selected>Last 24 hours</option>
         <option value="last_7_days">Last 7 days</option>
         <option value="custom">Custom date/time range</option>
         <option value="since_snapshot">Since snapshot</option>
@@ -164,7 +166,7 @@
 <div class="grid charts">
   <section class="panel wide"><h2>Cost per <span class="bucket-label">bucket</span></h2>
     <div class="chart tall"><canvas id="c-ts-cost"></canvas></div></section>
-  <section class="panel wide"><h2>Input vs output tokens per <span class="bucket-label">bucket</span> (separate axes)</h2>
+  <section class="panel wide"><h2>Tokens per request per <span class="bucket-label">bucket</span> (separate axes)</h2>
     <div class="chart tall"><canvas id="c-ts-tokens"></canvas></div></section>
   <section class="panel"><h2>Cost by agent</h2><div class="chart tall"><canvas id="c-agent-cost"></canvas></div></section>
   <section class="panel"><h2>Input tokens by agent</h2><div class="chart tall"><canvas id="c-agent-tokens"></canvas></div></section>
@@ -173,6 +175,48 @@
   <section class="panel"><h2>Success rate per <span class="bucket-label">bucket</span> (%)</h2>
     <div class="chart tall"><canvas id="c-ts-success"></canvas></div></section>
 </div>
+
+<section class="panel wide">
+  <h2>Routing configuration in selected scope (read-only)</h2>
+  <div class="scroll">
+    <table>
+      <thead><tr>
+        <th>Tier</th><th>Primary</th><th>Fallbacks</th><th>Requests</th><th>Cost</th>
+        <th>% of cost</th><th>Avg input</th><th>Avg output</th><th>p95 latency</th>
+        <th>Fell back</th><th>Usage missing</th>
+      </tr></thead>
+      <tbody id="config-body"></tbody>
+    </table>
+    <div id="config-empty" class="empty">Routing config unavailable.</div>
+  </div>
+  <div id="config-notes" class="proj-note"></div>
+  <footer>Reflects <code>router_config.json</code>, which the router re-reads on every request:
+    editing that file takes effect on the next call with no restart. This panel cannot write it,
+    and it never shows a credential value — only the name of the environment variable that holds it.
+    A tier is reachable from OpenClaw only if it is also declared in
+    <code>models.providers["router-local"].models</code> in <code>~\.openclaw\openclaw.json</code>.</footer>
+</section>
+
+<section class="panel wide">
+  <h2>Group requests in selected scope
+    <select id="group-by" aria-label="Grouping dimension"></select>
+    <label class="group-legacy"><input id="group-legacy" type="checkbox"> include pre-attribution rows</label>
+  </h2>
+  <div class="scroll">
+    <table>
+      <thead><tr>
+        <th>Group</th><th>Requests</th><th>% of requests</th><th>Cost</th><th>% of cost</th>
+        <th>Avg input</th><th>Avg output</th><th>Cost / request</th><th>p95 latency</th>
+        <th>Truncated</th><th>Models used</th>
+      </tr></thead>
+      <tbody id="group-body"></tbody>
+    </table>
+    <div id="group-empty" class="empty">No rows to group.</div>
+  </div>
+  <div id="group-notes" class="proj-note"></div>
+  <footer id="group-footer">Grouped on operational telemetry only — request shape, tier, tokens, cost,
+    latency. Never on prompt or response content, which this router does not store.</footer>
+</section>
 
 <section class="panel wide">
   <h2>Requests in selected scope</h2>
@@ -194,7 +238,8 @@
 (() => {
   "use strict";
   const AUTO_MS = 15000;
-  const state = { timer: null, charts: {}, snapshots: [], activeSnapshot: null, snapshotRequestCount: 0 };
+  const state = { timer: null, charts: {}, snapshots: [], activeSnapshot: null,
+                  snapshotRequestCount: 0, scopeParams: "" };
   const el = (id) => document.getElementById(id);
   const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
@@ -481,7 +526,8 @@
         pointRadius: series.length > 90 ? 0 : 2.5, tension: 0.25, spanGaps: true }] },
       options: { plugins: { legend: { display: false } },
         scales: { x: { ticks: { color: css("--muted"), maxTicksLimit: 12 }, grid: { display: false } },
-          y: { ticks: { color: css("--muted"), callback: (v) => Number(v).toFixed(digits) },
+          y: { beginAtZero: true,
+               ticks: { color: css("--muted"), callback: (v) => Number(v).toFixed(digits) },
                grid: { color: css("--grid") } } } },
     });
     area("c-ts-cost", series.map((s) => s.cost), css("--chart-a"), 4, true);
@@ -491,23 +537,24 @@
       if (!Number.isFinite(n)) return v;
       return n >= 1000 ? (n / 1000).toFixed(n >= 100000 ? 0 : 1) + "k" : String(n);
     };
+    const perRequest = (field) => (s) => (s.requests ? s[field] / s.requests : null);
     chartConfig("c-ts-tokens", {
       type: "line",
       data: { labels, datasets: [
-        { label: "input (left axis)", data: series.map((s) => s.input_tokens), borderColor: css("--chart-b"),
-          backgroundColor: css("--chart-b") + "22", fill: true, borderWidth: 2, pointRadius: 0, tension: 0.25,
-          yAxisID: "y" },
-        { label: "output (right axis)", data: series.map((s) => s.output_tokens), borderColor: css("--chart-c"),
-          backgroundColor: "transparent", fill: false, borderWidth: 2, pointRadius: 0, tension: 0.25,
-          yAxisID: "y1" }] },
+        { label: "input per request (left axis)", data: series.map(perRequest("input_tokens")), borderColor: css("--chart-b"),
+          backgroundColor: css("--chart-b") + "22", fill: true, borderWidth: 2,
+          pointRadius: series.length > 90 ? 0 : 2.5, tension: 0.25, spanGaps: true, yAxisID: "y" },
+        { label: "output per request (right axis)", data: series.map(perRequest("output_tokens")), borderColor: css("--chart-c"),
+          backgroundColor: "transparent", fill: false, borderWidth: 2,
+          pointRadius: series.length > 90 ? 0 : 2.5, tension: 0.25, spanGaps: true, yAxisID: "y1" }] },
       options: { scales: {
         x: { ticks: { color: css("--muted"), maxTicksLimit: 12 }, grid: { display: false } },
         y: { type: "linear", position: "left", beginAtZero: true,
           ticks: { color: css("--chart-b"), callback: tokenTick }, grid: { color: css("--grid") },
-          title: { display: true, text: "input", color: css("--chart-b"), font: { size: 10 } } },
+          title: { display: true, text: "input / req", color: css("--chart-b"), font: { size: 10 } } },
         y1: { type: "linear", position: "right", beginAtZero: true,
           ticks: { color: css("--chart-c"), callback: tokenTick }, grid: { drawOnChartArea: false },
-          title: { display: true, text: "output", color: css("--chart-c"), font: { size: 10 } } } } },
+          title: { display: true, text: "output / req", color: css("--chart-c"), font: { size: 10 } } } } },
     });
 
     const agents = Object.entries((ts && ts.agents) || {});
@@ -566,6 +613,125 @@
     }
   }
 
+  function fillTable(bodyId, emptyId, rows, cellsOf) {
+    const body = el(bodyId);
+    body.replaceChildren();
+    el(emptyId).style.display = rows.length ? "none" : "block";
+    for (const item of rows) {
+      const tr = document.createElement("tr");
+      cellsOf(item).forEach((text) => {
+        const td = document.createElement("td");
+        td.textContent = text;
+        tr.append(td);
+      });
+      body.append(tr);
+    }
+  }
+
+  const tokens = (value) =>
+    value === null || value === undefined ? "–" : Number(value).toLocaleString("en-US");
+
+  function observedCells(observed) {
+    if (!observed) return ["no traffic", "–", "–", "–", "–", "–", "–", "–"];
+    return [
+      String(observed.requests),
+      money(observed.cost_total),
+      num(observed.share_of_cost_percent, 1) + "%",
+      tokens(observed.input_tokens_avg),
+      tokens(observed.output_tokens_avg),
+      observed.latency_p95_ms === null ? "–" : num(observed.latency_p95_ms, 0) + " ms",
+      String(observed.fallback_requests),
+      String(observed.samples.usage_missing),
+    ];
+  }
+
+  function renderConfig(cfg) {
+    if (!cfg) {
+      fillTable("config-body", "config-empty", [], () => []);
+      el("config-notes").textContent = "Routing config endpoint unavailable.";
+      return;
+    }
+    const configured = cfg.tiers.map((tier) => ({
+      label: tier.tier + (cfg.tiers_without_traffic.includes(tier.tier) ? " · no traffic" : ""),
+      primary: tier.primary ?? "–",
+      fallbacks: tier.fallbacks.length ? tier.fallbacks.join(", ") : "none",
+      observed: tier.observed,
+      off: tier.served_models_off_config,
+    }));
+    const orphans = (cfg.traffic_without_tier || []).map((entry) => ({
+      label: entry.tier + " · not in config", primary: "–", fallbacks: "–", observed: entry, off: [],
+    }));
+    fillTable("config-body", "config-empty", [...configured, ...orphans],
+      (row) => [row.label, row.primary, row.fallbacks, ...observedCells(row.observed)]);
+
+    const notes = [];
+    if (!cfg.config_available) {
+      notes.push(`router_config.json could not be read (${cfg.config_error}); ` +
+        "the rows below come from telemetry alone, so a tier may be missing its configuration.");
+    }
+    if (cfg.tiers_without_traffic.length) {
+      notes.push(`Configured but unused in this scope: ${cfg.tiers_without_traffic.join(", ")}.`);
+    }
+    configured.filter((row) => row.off.length).forEach((row) =>
+      notes.push(`${row.label}: served ${row.off.join(", ")}, which is not declared for that tier.`));
+    notes.push(`Auto-routed requests in scope: ${cfg.routing_automatic_requests}. ` +
+      "Every other request named its tier itself, so the tier classifier did not choose those.");
+    if (cfg.excluded_legacy_rows) notes.push(`${cfg.excluded_legacy_rows} pre-attribution rows excluded.`);
+    el("config-notes").textContent = notes.join(" ");
+  }
+
+  async function loadGroupings(scopeParams) {
+    const params = new URLSearchParams(scopeParams);
+    params.set("by", el("group-by").value || "agent");
+    params.set("include_legacy", el("group-legacy").checked ? "true" : "false");
+    try {
+      const response = await fetch(`/api/dashboard/groupings?${params}`,
+        { headers: { accept: "application/json" } });
+      renderGroupings(response.ok ? await response.json() : null);
+    } catch {
+      renderGroupings(null);
+    }
+  }
+
+  function renderGroupings(g) {
+    if (!g) {
+      fillTable("group-body", "group-empty", [], () => []);
+      el("group-notes").textContent = "Grouping endpoint unavailable.";
+      return;
+    }
+    const select = el("group-by");
+    const dimensions = g.dimensions || [];
+    if (select.dataset.dimensions !== dimensions.join(",")) {
+      select.replaceChildren();
+      dimensions.forEach((dimension) => {
+        const option = document.createElement("option");
+        option.value = dimension;
+        option.textContent = dimension;
+        select.append(option);
+      });
+      select.dataset.dimensions = dimensions.join(",");
+    }
+    select.value = g.by;
+    fillTable("group-body", "group-empty", g.groups, (row) => [
+      row.group,
+      String(row.requests),
+      num(row.share_of_requests_percent, 1) + "%",
+      money(row.cost_total),
+      num(row.share_of_cost_percent, 1) + "%",
+      tokens(row.input_tokens_avg),
+      tokens(row.output_tokens_avg),
+      money(row.cost_avg),
+      row.latency_p95_ms === null ? "–" : num(row.latency_p95_ms, 0) + " ms",
+      String(row.truncated_by_length),
+      row.models.slice(0, 3).map((m) => `${m.name} (${m.requests})`).join(", ") +
+        (row.models.length > 3 ? ` +${row.models.length - 3} more` : ""),
+    ]);
+    const notes = [`Grouped by ${g.by} over ${g.totals.requests} requests` +
+      (g.excluded_legacy_rows ? `, excluding ${g.excluded_legacy_rows} pre-attribution rows` : "") + "."]
+      .concat(g.notes || []);
+    el("group-notes").textContent = notes.join(" ");
+  }
+
   function renderHealth(health) {
     const pill = el("health"), text = el("health-text");
     const usable = health && health.database_available;
@@ -615,12 +781,17 @@
       }
       const summary = await summaryResponse.json();
       const payload = await recentResponse.json();
-      let timeseries = null;
+      let timeseries = null, routingConfig = null;
       try {
         const tsResponse = await fetch(`/api/dashboard/timeseries?${summaryParams}`,
           { headers: { accept: "application/json" } });
         if (tsResponse.ok) timeseries = await tsResponse.json();
       } catch { timeseries = null; }
+      try {
+        const cfgResponse = await fetch(`/api/dashboard/config?${summaryParams}`,
+          { headers: { accept: "application/json" } });
+        if (cfgResponse.ok) routingConfig = await cfgResponse.json();
+      } catch { routingConfig = null; }
       showBanner("");
       renderHealth(summary.health);
       renderCards(summary.cards);
@@ -629,6 +800,9 @@
       renderTable(payload.requests || []);
       renderCharts(summary, payload.requests || []);
       renderTimeseries(timeseries);
+      renderConfig(routingConfig);
+      state.scopeParams = summaryParams.toString();
+      await loadGroupings(state.scopeParams);
       if (selected === "since_snapshot") renderSnapshotContext(summary.window?.snapshot, summary.window?.requests_since_snapshot);
       else renderSnapshotContext(null, 0);
       el("updated").textContent = new Date().toLocaleTimeString();
@@ -661,6 +835,8 @@
   }
 
   el("scope").addEventListener("change", () => { updateScopeControls(); load(); });
+  el("group-by").addEventListener("change", () => loadGroupings(state.scopeParams));
+  el("group-legacy").addEventListener("change", () => loadGroupings(state.scopeParams));
   el("range-start").addEventListener("change", load);
   el("range-end").addEventListener("change", load);
   el("snapshot-select").addEventListener("change", load);

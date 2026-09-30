@@ -24,17 +24,19 @@ BASE_ROW = {
     "success": 1, "fallback_count": 0, "budget_exhausted": 0, "requested_tier": None,
     "routing_reason": "default_interactive", "routing_automatic": 1,
     "attempted_models": json.dumps(["m1"]), "finish_reason": "stop", "agent": "tester",
+    "request_has_tools": 0, "task_type": None,
 }
 
 FIXTURE_ROWS = [
     {"latency_ms": 100.0, "estimated_cost": 0.01},
-    {"latency_ms": 200.0, "estimated_cost": 0.02},
+    {"latency_ms": 200.0, "estimated_cost": 0.02, "request_has_tools": 1},
     {"latency_ms": 300.0, "estimated_cost": 0.03, "success": 0, "http_status": 502,
      "selected_tier": "balanced", "actual_model": "m3", "fallback_count": 1,
      "routing_reason": "security_sensitive", "attempted_models": json.dumps(["m2", "m3"])},
     {"latency_ms": 400.0, "estimated_cost": 0.04, "selected_tier": "balanced", "actual_model": "m4",
      "routing_automatic": 0, "requested_tier": "deep", "routing_reason": "explicit_tier",
-     "budget_exhausted": 1, "http_status": 504, "attempted_models": json.dumps(["m4"])},
+     "budget_exhausted": 1, "http_status": 504, "attempted_models": json.dumps(["m4"]),
+     "request_has_tools": 1},
     {"latency_ms": 1000.0, "estimated_cost": None, "selected_tier": "deep", "actual_model": "m1"},
 ]
 
@@ -47,7 +49,8 @@ def make_db(path, rows):
             " output_tokens INTEGER, latency_ms REAL, estimated_cost REAL, http_status INTEGER,"
             " success INTEGER, fallback_count INTEGER, budget_exhausted INTEGER,"
             " requested_tier TEXT, routing_reason TEXT, routing_automatic INTEGER,"
-            " attempted_models TEXT, finish_reason TEXT, agent TEXT, prompt_text TEXT)"
+            " attempted_models TEXT, finish_reason TEXT, agent TEXT,"
+            " request_has_tools INTEGER, task_type TEXT, prompt_text TEXT)"
         )
         for index, override in enumerate(rows, start=1):
             data = dict(BASE_ROW)
@@ -234,14 +237,15 @@ def test_dashboard_page_and_chart_asset_are_served(client):
 
 
 def token_chart_block(page_text):
-    start = page_text.index('chartConfig("c-ts-tokens"')
+    """The c-ts-tokens chart config plus the per-request data prep it feeds on."""
+    start = page_text.index("const perRequest =")
     return page_text[start:page_text.index("const agents = Object.entries", start)]
 
 
 def test_token_chart_puts_output_on_its_own_right_hand_axis(client):
     """Input runs ~70x output, so a shared linear axis renders output as a flat zero line."""
     block = token_chart_block(client.get("/dashboard").text)
-    before_output, after_output = block.split('label: "output (right axis)"')
+    before_output, after_output = block.split('label: "output per request (right axis)"')
     assert 'yAxisID: "y"' in before_output
     assert 'yAxisID: "y1"' in after_output
     assert 'y1: {' in block and 'position: "right"' in block
@@ -252,7 +256,22 @@ def test_token_chart_labels_both_axes_for_the_reader(client):
     page = client.get("/dashboard").text
     block = token_chart_block(page)
     assert "separate axes" in page
-    assert 'text: "input"' in block and 'text: "output"' in block
+    assert 'text: "input / req"' in block and 'text: "output / req"' in block
+
+
+def test_token_chart_divides_totals_by_request_count(client):
+    """Per-bucket totals cannot separate 'more calls' from 'fatter calls'; per-request can."""
+    block = token_chart_block(client.get("/dashboard").text)
+    assert 'perRequest("input_tokens")' in block and 'perRequest("output_tokens")' in block
+    assert "s.requests ?" in block, "must not divide by a zero-request bucket"
+    assert "Tokens per request per" in client.get("/dashboard").text
+
+
+def test_bucketed_charts_default_to_a_time_scope(client):
+    """A request-count window yields 1-2 hourly buckets, so the per-hour charts drew nothing."""
+    page = client.get("/dashboard").text
+    assert '<option value="last_24_hours" selected>' in page
+    assert 'value="recent_100" selected' not in page
 
 
 def test_dashboard_fault_does_not_affect_model_routing(monkeypatch, tmp_path):
@@ -457,3 +476,160 @@ def test_recent_table_exposes_agent_column(client):
     assert all("agent" in row for row in requests)
     assert requests[0]["agent"] == "tester"
     assert "prompt_text" not in requests[0]
+
+
+TEST_CONFIG = {
+    "tiers": {
+        "fast": {"provider": "openrouter", "primary": "m1", "fallbacks": ["m2"]},
+        # m4 actually served balanced traffic but is not declared here, so the panel must
+        # surface it: this is how a hand-edited config drifts away from what runs.
+        "balanced": {"provider": "openrouter", "primary": "m3", "fallbacks": []},
+        "unused": {"provider": "openrouter", "primary": "m9", "fallbacks": []},
+    },
+    "openrouter": {
+        "base_url": "https://example.test/api/v1", "timeout_seconds": 120,
+        "api_key_env": "ROUTER_TEST_KEY", "api_key": "sk-LEAK-CHECK-MUST-NEVER-BE-SERVED",
+    },
+}
+
+
+def tiers_named(entries):
+    return {entry["tier"] for entry in entries}
+
+
+def config_client(monkeypatch, tmp_path, client):
+    config_path = tmp_path / "router_config.json"
+    config_path.write_text(json.dumps(TEST_CONFIG), encoding="utf-8")
+    monkeypatch.setattr(dashboard, "CONFIG_PATH", config_path)
+    return client.get("/api/dashboard/config?scope=recent&recent=5").json()
+
+
+def test_config_panel_pairs_each_tier_with_the_traffic_that_used_it(monkeypatch, tmp_path, client):
+    cfg = config_client(monkeypatch, tmp_path, client)
+    assert cfg["config_available"] is True and cfg["config_error"] is None
+    tiers = {t["tier"]: t for t in cfg["tiers"]}
+    assert tiers["fast"]["primary"] == "m1"
+    assert tiers["fast"]["observed"]["requests"] == 2
+    assert tiers["fast"]["observed"]["cost_total"] == pytest.approx(0.03)
+    assert tiers["balanced"]["observed"]["requests"] == 2
+
+
+def test_config_panel_names_a_configured_tier_that_no_traffic_ever_used(monkeypatch, tmp_path, client):
+    cfg = config_client(monkeypatch, tmp_path, client)
+    assert cfg["tiers_without_traffic"] == ["unused"]
+    assert tiers_named(cfg["tiers"]) == {"fast", "balanced", "unused"}
+
+
+def test_config_panel_surfaces_models_that_served_traffic_off_config(monkeypatch, tmp_path, client):
+    cfg = config_client(monkeypatch, tmp_path, client)
+    tiers = {t["tier"]: t for t in cfg["tiers"]}
+    assert tiers["balanced"]["served_models_off_config"] == ["m4"]
+    assert tiers["fast"]["served_models_off_config"] == []
+
+
+def test_config_panel_reports_traffic_on_a_tier_that_is_not_configured(monkeypatch, tmp_path, client):
+    cfg = config_client(monkeypatch, tmp_path, client)
+    assert [t["tier"] for t in cfg["traffic_without_tier"]] == ["deep"]
+    assert cfg["traffic_without_tier"][0]["requests"] == 1
+
+
+def test_config_panel_reports_how_much_traffic_was_actually_auto_routed(monkeypatch, tmp_path, client):
+    cfg = config_client(monkeypatch, tmp_path, client)
+    # Rows 1,2,3,5 carry routing_automatic=1; row 4 is an explicit tier request.
+    assert cfg["routing_automatic_requests"] == 4
+    assert cfg["excluded_legacy_rows"] == 0
+
+
+def test_config_panel_never_returns_a_credential_even_when_the_file_holds_one(monkeypatch, tmp_path, client):
+    """The real file stores only the *name* of the key's env var; a planted value must not appear."""
+    cfg = config_client(monkeypatch, tmp_path, client)
+    assert set(cfg["upstream"]) == {"base_url", "timeout_seconds", "api_key_env"}
+    assert cfg["upstream"]["api_key_env"] == "ROUTER_TEST_KEY"
+    assert "sk-LEAK-CHECK-MUST-NEVER-BE-SERVED" not in client.get(
+        "/api/dashboard/config?scope=recent&recent=5").text
+    assert not {"api_key", "key", "secret", "token", "authorization"} & set(walk_keys(cfg))
+
+
+def test_config_panel_degrades_when_the_config_file_is_absent(monkeypatch, tmp_path, client):
+    monkeypatch.setattr(dashboard, "CONFIG_PATH", tmp_path / "absent.json")
+    body = client.get("/api/dashboard/config?scope=recent&recent=5")
+    assert body.status_code == 200
+    assert body.json()["config_available"] is False
+    assert body.json()["config_error"] == "config_file_missing"
+    assert body.json()["tiers"] == []
+
+
+def test_config_panel_reports_which_tiers_ran_when_the_config_is_unparseable(monkeypatch, tmp_path, client):
+    """A half-written config must still show the traffic, with the breakage named."""
+    broken = tmp_path / "router_config.json"
+    broken.write_text('{"tiers": {"fast": ', encoding="utf-8")
+    monkeypatch.setattr(dashboard, "CONFIG_PATH", broken)
+    cfg = client.get("/api/dashboard/config?scope=recent&recent=5").json()
+    assert cfg["config_available"] is False and cfg["config_error"] == "config_invalid_json"
+    assert sorted(t["tier"] for t in cfg["traffic_without_tier"]) == ["balanced", "deep", "fast"]
+
+
+def test_groupings_exclude_pre_attribution_rows_unless_asked(monkeypatch, tmp_path):
+    path = make_db(tmp_path / "legacy.db", [
+        {"agent": "live", "routing_automatic": 0, "estimated_cost": 1.0},
+        {"agent": None, "routing_automatic": None, "estimated_cost": 99.0},
+    ])
+    use_db(monkeypatch, path)
+    scoped = TestClient(app.app)
+    default = scoped.get("/api/dashboard/groupings?scope=recent&recent=10&by=agent").json()
+    assert default["excluded_legacy_rows"] == 1
+    assert [g["group"] for g in default["groups"]] == ["live"]
+    assert default["totals"]["cost_total"] == pytest.approx(1.0)
+
+    widened = scoped.get(
+        "/api/dashboard/groupings?scope=recent&recent=10&by=agent&include_legacy=true").json()
+    assert widened["excluded_legacy_rows"] == 0
+    assert [g["group"] for g in widened["groups"]] == ["(unattributed)", "live"]
+    assert widened["totals"]["cost_total"] == pytest.approx(100.0)
+
+
+def test_groupings_reject_an_unknown_dimension(client):
+    assert client.get("/api/dashboard/groupings?by=prompt_text").status_code == 422
+
+
+def test_groupings_name_the_sample_behind_every_average(client):
+    """A mean over the rows that captured usage must not read as a mean over all requests."""
+    groups = client.get("/api/dashboard/groupings?scope=recent&recent=5&by=tier").json()["groups"]
+    deep = next(g for g in groups if g["group"] == "deep")
+    assert deep["requests"] == 1
+    assert deep["samples"]["cost"] == 0 and deep["cost_avg"] is None
+    assert deep["samples"]["input_tokens"] == 1 and deep["samples"]["usage_missing"] == 0
+
+
+def test_grouping_by_tools_splits_on_request_structure_not_content(client):
+    groups = client.get("/api/dashboard/groupings?scope=recent&recent=5&by=tools").json()["groups"]
+    assert {g["group"]: g["requests"] for g in groups} == {"no tools": 3, "with tools": 2}
+    assert next(g for g in groups if g["group"] == "with tools")["input_tokens_avg"] == 1
+
+
+def test_group_labels_are_values_never_object_keys(client):
+    """An agent or tier named like a content field must not look like a leaked field."""
+    payload = client.get("/api/dashboard/groupings?scope=recent&recent=5&by=agent").json()
+    assert isinstance(payload["groups"], list)
+    assert set(payload["groups"][0]) >= {"group", "requests", "samples", "models", "finish_reasons"}
+    assert all(isinstance(m, dict) and "name" in m for m in payload["groups"][0]["models"])
+    assert all(isinstance(r, dict) and "name" in r for r in payload["groups"][0]["finish_reasons"])
+
+
+def test_dashboard_page_wires_the_config_and_grouping_panels(client):
+    page = client.get("/dashboard").text
+    for needle in ("/api/dashboard/config", "/api/dashboard/groupings",
+                   'id="config-body"', 'id="group-body"', 'id="group-by"', 'id="group-legacy"'):
+        assert needle in page, needle
+    assert "read-only" in page
+    assert "never shows a credential value" in page
+
+
+def test_config_and_grouping_endpoints_never_expose_prompt_content(client):
+    for path in ("/api/dashboard/config?scope=recent&recent=5",
+                 "/api/dashboard/groupings?scope=recent&recent=5&by=agent",
+                 "/api/dashboard/groupings?scope=recent&recent=5&by=band"):
+        body = client.get(path)
+        assert body.status_code == 200, path
+        assert SENTINEL not in body.text, path
+        assert not BANNED_KEYS & set(walk_keys(body.json())), path

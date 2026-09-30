@@ -36,6 +36,9 @@ STATIC_DIR = ROOT / "static"
 PAGE_PATH = STATIC_DIR / "dashboard.html"
 CHART_JS_PATH = STATIC_DIR / "vendor" / "chart.umd.min.js"
 SNAPSHOTS_PATH = ROOT / "dashboard_snapshots.json"
+# Read directly rather than via app.load_config(): app imports this module, so importing
+# app back would be circular. The file itself is owned by app.py.
+CONFIG_PATH = ROOT / "router_config.json"
 
 # Columns read for aggregate reporting. Everything is operational telemetry: no body,
 # no message, no token text.
@@ -53,6 +56,10 @@ RECENT_COLUMNS = (
     "actual_model", "agent", "latency_ms", "estimated_cost", "http_status", "success",
     "fallback_count", "budget_exhausted",
 )
+
+# Grouping adds request *shape* to the same operational-only rule: still no body, no
+# message, no token text. Tool usage is a request-structure flag, not content.
+GROUPING_COLUMNS = SUMMARY_COLUMNS + ("request_has_tools", "task_type")
 
 WINDOWS = (25, 50, 100, 500)
 MIN_WINDOW, MAX_WINDOW = 1, 1000
@@ -121,21 +128,22 @@ def read_window(limit: int, columns: tuple[str, ...]) -> list[dict[str, Any]]:
 
 
 def read_scoped_rows(scope: str, recent: int, start: str | None = None,
-                     end: str | None = None, snapshot_name: str | None = None) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+                     end: str | None = None, snapshot_name: str | None = None,
+                     columns: tuple[str, ...] = SUMMARY_COLUMNS) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Select one authoritative row set for both summary and recent-table APIs."""
     if scope not in SCOPE_NAMES:
         raise HTTPException(status_code=422, detail="unsupported dashboard scope")
     path = db_path()
     rows: list[dict[str, Any]] = []
     if scope == "recent":
-        rows = read_window(recent, SUMMARY_COLUMNS)
+        rows = read_window(recent, columns)
         return rows, {"scope": scope, "requested": recent, "returned": len(rows),
                       "available_windows": list(WINDOWS)}
     if path.exists():
         with connect_read_only(path) as db:
             if _has_telemetry_table(db):
                 rows = [dict(row) for row in db.execute(
-                    f"SELECT {', '.join(SUMMARY_COLUMNS)} FROM telemetry ORDER BY id"
+                    f"SELECT {', '.join(columns)} FROM telemetry ORDER BY id"
                 ).fetchall()]
 
     metadata: dict[str, Any] = {"scope": scope, "returned": 0}
@@ -408,6 +416,185 @@ def build_timeseries(scope: str, recent: int, start: str | None = None,
 router = APIRouter()
 
 
+INPUT_BANDS = ("<2k", "2k-10k", "10k-50k", "50k+", "(no usage captured)")
+
+
+def _input_band(value: Any) -> str:
+    if value is None:
+        return "(no usage captured)"
+    tokens = float(value)
+    if tokens < 2000:
+        return "<2k"
+    if tokens < 10000:
+        return "2k-10k"
+    if tokens < 50000:
+        return "10k-50k"
+    return "50k+"
+
+
+def _value_counts(rows: list[dict[str, Any]], pick: Callable[[dict[str, Any]], Any]) -> list[dict[str, Any]]:
+    """Counts as a list of labelled entries, never as a dict keyed by the value.
+
+    Group labels come from data (an agent name, a model id, a finish reason), and the
+    dashboard's content guard forbids data-derived keys: a tier or agent named `text`
+    would otherwise look like a leaked field.
+    """
+    counts: dict[str, int] = {}
+    for row in rows:
+        key = str(pick(row))
+        counts[key] = counts.get(key, 0) + 1
+    return [{"name": name, "requests": n}
+            for name, n in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))]
+
+
+def _aggregate(rows: list[dict[str, Any]], window_requests: int, window_cost: float) -> dict[str, Any]:
+    """One group's numbers.
+
+    Every average names the sample it was taken over: token and cost columns are NULL
+    whenever upstream usage never arrived, so a group mean computed over 900 of 1,000
+    rows must not read as though it covered all of them.
+    """
+    total = len(rows)
+    lat = [float(r["latency_ms"]) for r in rows if r.get("latency_ms") is not None]
+    ins = [float(r["input_tokens"]) for r in rows if r.get("input_tokens") is not None]
+    outs = [float(r["output_tokens"]) for r in rows if r.get("output_tokens") is not None]
+    costs = [float(r["estimated_cost"]) for r in rows if r.get("estimated_cost") is not None]
+    ok = sum(_is_true(r.get("success")) for r in rows)
+    return {
+        "requests": total,
+        "successful": ok,
+        "failed": total - ok,
+        "success_rate_percent": round(ok * 100 / total, 2) if total else 0.0,
+        "share_of_requests_percent": round(total * 100 / window_requests, 2) if window_requests else 0.0,
+        "share_of_cost_percent": round(sum(costs) * 100 / window_cost, 2) if window_cost else 0.0,
+        "input_tokens_total": int(sum(ins)),
+        "input_tokens_avg": round(sum(ins) / len(ins)) if ins else None,
+        "output_tokens_total": int(sum(outs)),
+        "output_tokens_avg": round(sum(outs) / len(outs)) if outs else None,
+        "cost_total": round(sum(costs), 8),
+        "cost_avg": round(sum(costs) / len(costs), 8) if costs else None,
+        "latency_avg_ms": round(sum(lat) / len(lat), 1) if lat else None,
+        "latency_p95_ms": round(_percentile(lat, 0.95), 1) if lat else None,
+        "fallback_requests": sum(1 for r in rows if float(r.get("fallback_count") or 0) > 0),
+        "truncated_by_length": sum(1 for r in rows if r.get("finish_reason") == "length"),
+        "samples": {
+            "input_tokens": len(ins), "output_tokens": len(outs),
+            "cost": len(costs), "latency": len(lat), "usage_missing": total - len(ins),
+        },
+        "finish_reasons": _value_counts(rows, lambda r: r.get("finish_reason") or "(not captured)"),
+        "models": _value_counts(rows, lambda r: r.get("actual_model") or "(none)"),
+    }
+
+
+GROUP_DIMENSIONS: dict[str, Callable[[dict[str, Any]], Any]] = {
+    "agent": lambda r: r.get("agent") or "(unattributed)",
+    "tier": lambda r: r.get("selected_tier") or "(none)",
+    "model": lambda r: r.get("actual_model") or "(none)",
+    "band": lambda r: _input_band(r.get("input_tokens")),
+    "tools": lambda r: "with tools" if _is_true(r.get("request_has_tools")) else "no tools",
+    "finish": lambda r: r.get("finish_reason") or "(not captured)",
+    "routing": lambda r: r.get("routing_reason") or "(none)",
+    "task_type": lambda r: r.get("task_type") or "(never sent)",
+}
+
+
+def _split_legacy(rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """`routing_automatic` is NULL only on rows written before tier attribution existed."""
+    attributed = [row for row in rows if row.get("routing_automatic") is not None]
+    return attributed, [row for row in rows if row.get("routing_automatic") is None]
+
+
+GROUPING_NOTES = (
+    "task_type is read from an x-task-type header that OpenClaw has never sent, so that "
+    "dimension is empty by construction, not by filter.",
+    "(unattributed) holds two different things: rows predating agent attribution, and live "
+    "calls on the unsuffixed agents.defaults.model.primary. The legacy filter removes the former only.",
+    "usage_missing counts rows where upstream sent no token usage; means over a group with a "
+    "large usage_missing are computed on that group's survivors, not on all its requests.",
+)
+
+
+def build_groupings(scope: str, recent: int, by: str = "agent", start: str | None = None,
+                    end: str | None = None, snapshot_name: str | None = None,
+                    include_legacy: bool = False) -> dict[str, Any]:
+    if by not in GROUP_DIMENSIONS:
+        raise HTTPException(status_code=422, detail=f"unknown grouping; use one of {sorted(GROUP_DIMENSIONS)}")
+    rows, window = read_scoped_rows(scope, recent, start, end, snapshot_name, GROUPING_COLUMNS)
+    attributed, legacy = _split_legacy(rows)
+    selected = rows if include_legacy else attributed
+    window_cost = sum(float(row.get("estimated_cost") or 0) for row in selected)
+    pick = GROUP_DIMENSIONS[by]
+    buckets: dict[str, list[dict[str, Any]]] = {}
+    for row in selected:
+        buckets.setdefault(str(pick(row)), []).append(row)
+    return {
+        "window": window, "by": by, "dimensions": sorted(GROUP_DIMENSIONS),
+        "bands": list(INPUT_BANDS),
+        "groups": [{"group": name, **_aggregate(members, len(selected), window_cost)}
+                   for name, members in sorted(buckets.items(), key=lambda kv: str(kv[0]))],
+        "totals": _aggregate(selected, len(selected), window_cost),
+        "excluded_legacy_rows": 0 if include_legacy else len(legacy),
+        "notes": GROUPING_NOTES,
+    }
+
+
+def load_router_config() -> dict[str, Any]:
+    """Read the live tier routing config. Never echoes a credential: the file stores only the
+    *name* of the environment variable holding the key, and only that name is returned."""
+    unavailable = {"available": False, "error": None, "tiers": {}, "upstream": {}}
+    try:
+        value = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {**unavailable, "error": "config_file_missing"}
+    except ValueError:
+        return {**unavailable, "error": "config_invalid_json"}
+    except OSError:
+        return {**unavailable, "error": "config_unreadable"}
+    if not isinstance(value, dict):
+        return {**unavailable, "error": "config_root_not_object"}
+    return {"available": True, "error": None,
+            "tiers": value.get("tiers") if isinstance(value.get("tiers"), dict) else {},
+            "upstream": value.get("openrouter") if isinstance(value.get("openrouter"), dict) else {}}
+
+
+def build_config(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Configured tiers side by side with the traffic that actually used them."""
+    config = load_router_config()
+    window_cost = sum(float(row.get("estimated_cost") or 0) for row in rows)
+    attributed, legacy = _split_legacy(rows)
+    buckets: dict[str, list[dict[str, Any]]] = {}
+    for row in attributed:
+        buckets.setdefault(str(row.get("selected_tier") or "(none)"), []).append(row)
+    tiers: list[dict[str, Any]] = []
+    for name, tier in config["tiers"].items():
+        members = buckets.get(name, [])
+        declared = [tier.get("primary"), *(tier.get("fallbacks") or [])] if isinstance(tier, dict) else []
+        served = [entry["name"] for entry in
+                  _value_counts(members, lambda r: r.get("actual_model") or "(none)")]
+        tiers.append({
+            "tier": name,
+            "provider": tier.get("provider") if isinstance(tier, dict) else None,
+            "primary": tier.get("primary") if isinstance(tier, dict) else None,
+            "fallbacks": list(tier.get("fallbacks") or []) if isinstance(tier, dict) else [],
+            "observed": _aggregate(members, len(attributed), window_cost) if members else None,
+            "served_models_off_config": sorted(m for m in served if m not in declared),
+        })
+    upstream = config["upstream"]
+    return {
+        "config_available": config["available"], "config_error": config["error"],
+        "config_path": CONFIG_PATH.name,
+        "tiers": tiers,
+        "tiers_without_traffic": sorted(t["tier"] for t in tiers if not t["observed"]),
+        "traffic_without_tier": [{"tier": name, **_aggregate(members, len(attributed), window_cost)}
+                                 for name, members in buckets.items() if name not in config["tiers"]],
+        "upstream": {"base_url": upstream.get("base_url"),
+                     "timeout_seconds": upstream.get("timeout_seconds"),
+                     "api_key_env": upstream.get("api_key_env")},
+        "excluded_legacy_rows": len(legacy),
+        "routing_automatic_requests": sum(1 for row in attributed if _is_true(row.get("routing_automatic"))),
+    }
+
+
 def _unavailable(exc: BaseException) -> JSONResponse:
     return JSONResponse({"error": "dashboard_unavailable", "cause": exc.__class__.__name__}, status_code=503)
 
@@ -478,6 +665,28 @@ def dashboard_timeseries(scope: str = Query("recent"),
                          start: str | None = None, end: str | None = None,
                          snapshot: str | None = None) -> Any:
     return _guarded(lambda: build_timeseries(scope, recent, start, end, snapshot))
+
+
+@router.get("/api/dashboard/config")
+def dashboard_config(recent: int = Query(100, ge=MIN_WINDOW, le=MAX_WINDOW),
+                     scope: str = Query("recent"), start: str | None = None,
+                     end: str | None = None, snapshot: str | None = None) -> Any:
+    """Read-only view of the tier routing config beside the traffic that used each tier."""
+    def build():
+        rows, _ = read_scoped_rows(scope, recent, start, end, snapshot)
+        return build_config(rows)
+    return _guarded(build)
+
+
+@router.get("/api/dashboard/groupings")
+def dashboard_groupings(scope: str = Query("last_24_hours"),
+                        recent: int = Query(100, ge=MIN_WINDOW, le=MAX_WINDOW),
+                        by: str = Query("agent"),
+                        include_legacy: bool = Query(False),
+                        start: str | None = None, end: str | None = None,
+                        snapshot: str | None = None) -> Any:
+    """Request-shape groupings over operational telemetry only; never reads message content."""
+    return _guarded(lambda: build_groupings(scope, recent, by, start, end, snapshot, include_legacy))
 
 
 @router.get("/dashboard", include_in_schema=False)
