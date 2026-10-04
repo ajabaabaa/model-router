@@ -6,72 +6,84 @@
 <title>Routing topology — openclaw-router</title>
 <style>
   :root{
-    --ink:#0f172a; --muted:#64748b; --line:#e2e8f0; --surface:#ffffff; --band:#f8fafc;
+    --ink:#0f172a; --muted:#64748b; --faint:#94a3b8; --line:#e2e8f0; --hair:#eef2f7;
+    --surface:#ffffff; --band:#f8fafc; --panel:#fcfdfe;
     --caller:#1d4ed8; --healthy:#166534; --fallback:#b45309; --failing:#be123c; --idle:#94a3b8;
+    --mono:ui-monospace,"JetBrains Mono",SFMono-Regular,Consolas,monospace;
   }
   *{box-sizing:border-box}
   body{margin:0;background:var(--band);color:var(--ink);
-       font:14px/1.45 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
-  header{background:var(--surface);border-bottom:1px solid var(--line);padding:14px 20px}
-  h1{margin:0;font-size:17px;letter-spacing:-.01em}
-  .sub{color:var(--muted);font-size:12.5px;margin-top:3px}
-  .bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:10px}
-  select,button{font:inherit;font-size:12.5px;padding:5px 9px;border:1px solid var(--line);
+       font:14px/1.45 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+       -webkit-font-smoothing:antialiased}
+  header{background:var(--surface);border-bottom:1px solid var(--line);padding:14px 22px}
+  h1{margin:0;font-size:16px;font-weight:650;letter-spacing:-.015em}
+  .sub{color:var(--muted);font-size:12px;margin-top:3px;font-variant-numeric:tabular-nums}
+  .bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:11px}
+  select,button{font:inherit;font-size:12.5px;padding:5px 10px;border:1px solid var(--line);
                 border-radius:7px;background:var(--surface);color:var(--ink);cursor:pointer}
+  select:hover,button:hover{border-color:var(--faint)}
+  button:focus-visible,select:focus-visible,.node:focus-visible{outline:2px solid var(--caller);outline-offset:2px}
   button[aria-pressed="true"]{background:var(--caller);border-color:var(--caller);color:#fff}
   .chips{display:flex;flex-wrap:wrap;gap:6px;margin-left:auto}
   .chip{background:var(--band);border:1px solid var(--line);border-radius:999px;
-        padding:3px 10px;font-size:12px;color:var(--muted)}
-  .chip b{color:var(--ink);font-variant-numeric:tabular-nums}
-  .chip.alert{border-color:var(--failing);color:var(--failing)}
-  main{padding:16px 20px 40px}
+        padding:3px 10px;font-size:11.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+  .chip.alert{border-color:var(--failing);color:var(--failing);background:#fff1f2}
+  main{padding:16px 22px 44px;max-width:1180px}
   .panel{background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:auto}
-  svg{display:block;min-width:960px}
-  .colhead{font-size:11px;fill:var(--muted);text-transform:uppercase;letter-spacing:.07em;font-weight:600}
-  .node rect{rx:7}
-  .node text.name{font-size:12.5px;font-weight:600}
-  .node text.stat{font-size:11px;fill:var(--muted);font-variant-numeric:tabular-nums}
-  .node{cursor:pointer}
-  .node.dim{opacity:.28}
+  svg{display:block;min-width:1000px}
+  .colhead{font-size:10.5px;fill:var(--muted);text-transform:uppercase;letter-spacing:.09em;font-weight:700}
+  .colcount{font-size:10.5px;fill:var(--faint);letter-spacing:.02em;font-weight:600}
+  .node{cursor:grab}
+  .node.dragging{cursor:grabbing}
+  .node text.name{font-size:12.5px;font-weight:600;letter-spacing:-.005em}
+  .node text.name.model{font-family:var(--mono);font-size:11.5px;font-weight:500}
+  .node text.name.probe{fill:var(--muted);font-weight:500}
+  .node text.stat{font-size:10.5px;fill:var(--muted);font-variant-numeric:tabular-nums}
+  .node.dim{opacity:.22}
+  .gate{font-size:9.5px;font-weight:700;letter-spacing:.03em;text-transform:uppercase}
   .edge{fill:none;transition:opacity .12s}
-  .edge.dim{opacity:.07}
-  .edge.hot{opacity:1}
-  text.elabel{font-size:10.5px;fill:var(--muted);paint-order:stroke;stroke:var(--surface);
-              stroke-width:3px;font-variant-numeric:tabular-nums}
-  .legend{display:flex;flex-wrap:wrap;gap:14px;margin:10px 2px 0;font-size:12px;color:var(--muted)}
+  .edge.dim{opacity:.06}
+  .flow{fill:none;stroke-linecap:round;stroke-dasharray:2 16;animation:flow linear infinite;opacity:.9;
+        pointer-events:none}
+  @keyframes flow{to{stroke-dashoffset:-18}}
+  body.noflow .flow{display:none}
+  @media (prefers-reduced-motion: reduce){ .flow{display:none} }
+  text.elabel{font-size:10.5px;fill:var(--ink);paint-order:stroke;stroke:var(--surface);
+              stroke-width:3.5px;font-variant-numeric:tabular-nums;pointer-events:none}
+  .legend{display:flex;flex-wrap:wrap;gap:16px;margin:11px 2px 0;font-size:11.5px;color:var(--muted)}
   .legend span{display:inline-flex;align-items:center;gap:6px}
-  .sw{width:22px;height:0;border-top-width:3px;border-top-style:solid;display:inline-block}
-  #detail{margin-top:12px;font-size:12.5px;color:var(--muted);min-height:20px}
+  .sw{width:24px;height:0;border-top-width:3px;border-top-style:solid;display:inline-block}
+  #detail{margin-top:14px;font-size:12.5px;color:var(--muted);min-height:20px}
   #detail b{color:var(--ink)}
-  .drawer{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:4px}
-  .drawer h3{margin:0 0 6px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink)}
+  .drawer{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:4px}
+  .drawer h3{margin:0 0 6px;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink)}
   .drawer table{width:100%;border-collapse:collapse;font-size:12px;font-variant-numeric:tabular-nums}
   .drawer th{text-align:left;font-weight:600;color:var(--muted);border-bottom:1px solid var(--line);padding:3px 6px}
-  .drawer td{border-bottom:1px solid var(--band);padding:3px 6px;color:var(--ink)}
+  .drawer td{border-bottom:1px solid var(--hair);padding:3px 6px;color:var(--ink)}
   .drawer td.num{text-align:right}
-  .kv{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 10px}
-  .kv span{background:var(--band);border:1px solid var(--line);border-radius:6px;padding:2px 8px;font-size:11.5px}
-  .gate{font-size:10px;font-weight:700;letter-spacing:.02em}
+  .kv{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 11px}
+  .kv span{background:var(--band);border:1px solid var(--line);border-radius:6px;padding:2px 8px;
+           font-size:11.5px;font-variant-numeric:tabular-nums}
   .flag{color:var(--failing);font-weight:600}
-  .strip{margin-top:12px;border:1px solid var(--line);border-left:3px solid var(--healthy);
-         background:var(--surface);border-radius:8px;padding:7px 11px;font-size:11.5px;color:var(--muted)}
+  .strip{margin-top:14px;border:1px solid var(--line);border-left:3px solid var(--healthy);
+         background:var(--surface);border-radius:8px;padding:8px 12px;font-size:11.5px;color:var(--muted)}
   #matrixtable{border-collapse:collapse;font-size:11.5px;font-variant-numeric:tabular-nums}
-  #matrixtable th,#matrixtable td{padding:3px 8px;border-bottom:1px solid var(--band);text-align:right}
+  #matrixtable th,#matrixtable td{padding:3px 8px;border-bottom:1px solid var(--hair);text-align:right}
   #matrixtable th{color:var(--muted);font-weight:600}
   #matrixtable .rowh{text-align:left;font-weight:600;color:var(--ink);white-space:nowrap}
-  #matrixtable td.miss{color:var(--idle)}
-  .traces{margin-top:12px}
-  .traces h3{margin:0 0 4px;font-size:11px;letter-spacing:.06em;text-transform:uppercase}
+  #matrixtable td.miss{color:var(--faint)}
+  .traces{margin-top:14px}
+  .traces h3{margin:0 0 4px;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase}
   .traces ul{margin:0;padding-left:16px}
   .traces li{font-size:11.5px;margin-bottom:3px}
-  .traces code{font-family:ui-monospace,"JetBrains Mono",Consolas,monospace;font-size:11px;color:var(--muted)}
-  footer{margin-top:14px;font-size:11.5px;color:var(--muted)}
+  .traces code{font-family:var(--mono);font-size:11px;color:var(--muted)}
+  footer{margin-top:16px;font-size:11.5px;color:var(--muted)}
   .err{background:#fef2f2;border:1px solid #fecaca;color:#991b1b;padding:10px 12px;border-radius:8px}
 </style>
 </head>
 <body>
 <header>
-  <h1>Routing topology — who is using which model</h1>
+  <h1>Routing topology</h1>
   <div class="sub" id="stamp">loading…</div>
   <div class="bar">
     <label>Window
@@ -82,8 +94,10 @@
         <option value="recent">last 200 requests</option>
       </select>
     </label>
-    <button id="refresh" aria-pressed="true">auto-refresh: on</button>
+    <button id="refresh" aria-pressed="true">auto-refresh</button>
+    <button id="flow" aria-pressed="true">data flow</button>
     <button id="matrix" aria-pressed="false">latency matrix</button>
+    <button id="reset" title="Clear dragged node positions">reset layout</button>
     <div class="chips" id="chips"></div>
   </div>
 </header>
@@ -95,9 +109,9 @@
     <span><i class="sw" style="border-color:var(--fallback);border-top-style:dashed"></i>↦ fallback carried traffic</span>
     <span><i class="sw" style="border-color:var(--failing);border-top-width:4px"></i>✕ failures on this link</span>
     <span><i class="sw" style="border-color:var(--idle);border-top-style:dotted"></i>○ declared, no traffic</span>
-    <span>Column position encodes the node type; colour encodes state only.</span>
+    <span>Drag any node to rearrange · click to isolate · column = node type, colour = state</span>
   </div>
-  <div class="panel" id="matrixpanel" hidden style="margin-bottom:12px;padding:10px 12px">
+  <div class="panel" id="matrixpanel" hidden style="margin-top:14px;padding:12px 14px">
     <table id="matrixtable"></table>
     <div class="sub" id="matrixnote"></div>
   </div>
@@ -116,11 +130,17 @@ const COLS = [
   {kind: "model",    title: "Models"},
   {kind: "upstream", title: "Upstream"},
 ];
-const X = {agent: 24, tier: 292, model: 596, upstream: 930};
-const NODE_W = {agent: 232, tier: 236, model: 300, upstream: 130};
-const ROW_H = 46, TOP = 54;
+const X = {agent: 26, tier: 300, model: 618, upstream: 962};
+const NODE_W = {agent: 236, tier: 252, model: 316, upstream: 116};
+const NODE_H = 36, ROW_H = 48, TOP = 58;
+const POS_KEY = "openclaw-router.topology.positions.v1";
 const $ = (id) => document.getElementById(id);
-let data = null, selected = null;
+
+let data = null, selected = null, hovered = null;
+let showMatrix = false, auto = true, showFlow = true;
+let positions = {};
+try { positions = JSON.parse(localStorage.getItem(POS_KEY)) || {}; } catch { positions = {}; }
+if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) showFlow = false;
 
 const fmtMoney = (v) => "$" + (v >= 1 ? v.toFixed(2) : v.toFixed(4));
 const fmtNum = (v) => (v >= 1e6 ? (v / 1e6).toFixed(1) + "M" : v >= 1e3 ? (v / 1e3).toFixed(1) + "k" : String(v));
@@ -136,27 +156,36 @@ const STROKE = {healthy: "var(--healthy)", fallback: "var(--fallback)",
 const DASH = {healthy: "", fallback: "7 5", failing: "", idle: "2 5"};
 const GLYPH = {healthy: "●", fallback: "↦", failing: "✕", idle: "○"};
 
-function maxRequests(edges) {
-  return Math.max(1, ...edges.map((e) => e.requests));
-}
-function widthFor(reqs, max) {
-  return 1.2 + 7.5 * Math.sqrt(reqs / max);   // sqrt scale: area, not length, reads as volume
-}
+const widthFor = (reqs, max) => 1.2 + 7.5 * Math.sqrt(reqs / max);  // sqrt: area reads as volume
+// Busier links pump faster; the animation duration is the throughput, not decoration.
+const flowSeconds = (reqs, max) => (0.45 + 3.6 * (1 - reqs / max)).toFixed(2);
+
+// The backend's caller kinds are "caller", "synthetic" (probe/benchmark) and "unknown" (no
+// identity). All belong in the Callers lane - dropping any of them hides traffic that is
+// precisely the point of the view.
+const KINDS = {agent: ["caller", "agent", "synthetic", "unknown"],
+               tier: ["tier"], model: ["model"], upstream: ["upstream"]};
 
 function layout() {
   const byKind = {};
-  for (const c of COLS) byKind[c.kind] = data.nodes.filter((n) => n.kind === c.kind);
+  for (const c of COLS) byKind[c.kind] = data.nodes.filter((n) => KINDS[c.kind].includes(n.kind));
   for (const c of COLS) {
     byKind[c.kind].sort((a, b) => b.requests - a.requests || a.label.localeCompare(b.label));
-    byKind[c.kind].forEach((n, i) => { n.x = X[c.kind]; n.y = TOP + i * ROW_H; n.w = NODE_W[c.kind]; });
+    byKind[c.kind].forEach((n, i) => {
+      const saved = positions[n.id];
+      n.x = saved ? saved.x : X[c.kind];
+      n.y = saved ? saved.y : TOP + i * ROW_H;
+      n.w = NODE_W[c.kind];
+    });
   }
-  const rows = Math.max(...COLS.map((c) => byKind[c.kind].length));
-  return {byKind, height: TOP + rows * ROW_H + 26};
+  const rows = Math.max(1, ...COLS.map((c) => byKind[c.kind].length));
+  const lowest = Math.max(0, ...data.nodes.map((n) => n.y || 0));
+  return {byKind, height: Math.max(TOP + rows * ROW_H + 28, lowest + NODE_H + 40)};
 }
 
-function path(a, b, bend) {
-  const x1 = a.x + a.w, y1 = a.y + 17, x2 = b.x, y2 = b.y + 17;
-  const dx = Math.max(40, (x2 - x1) * 0.55) * (bend || 1);
+function path(a, b) {
+  const x1 = a.x + a.w, y1 = a.y + NODE_H / 2, x2 = b.x, y2 = b.y + NODE_H / 2;
+  const dx = Math.max(40, (x2 - x1) * 0.55);
   return `M${x1},${y1} C${x1 + dx},${y1} ${x2 - dx},${y2} ${x2},${y2}`;
 }
 
@@ -168,55 +197,63 @@ function gateText(n) {
 }
 
 function nodeLabel(n) {
-  const bits = [];
-  if (n.kind === "agent") bits.push(`${fmtNum(n.requests)} req · ${fmtMoney(n.cost)}`);
-  else if (n.kind === "tier") {
-    if (n.meta.min_max_tokens) bits.push("floor " + n.meta.min_max_tokens);
-    bits.push(`${fmtNum(n.requests)} req`);
-  } else if (n.kind === "model") bits.push(`${fmtNum(n.requests)} req · ${fmtMoney(n.cost)}`);
-  else bits.push(`${fmtNum(n.requests)} req`);
-  return bits.join("  ");
+  if (n.kind === "tier") {
+    return (n.meta.min_max_tokens ? "floor " + n.meta.min_max_tokens + "  " : "") +
+      `${fmtNum(n.requests)} req · ${fmtMoney(n.cost)}`;
+  }
+  if (n.kind === "upstream") return `${fmtNum(n.requests)} req`;
+  return `${fmtNum(n.requests)} req · ${fmtMoney(n.cost)}`;
 }
 
 function render() {
   const svg = $("graph");
   const {byKind, height} = layout();
-  svg.setAttribute("viewBox", `0 0 1080 ${height}`);
-  svg.setAttribute("width", "1080");
+  svg.setAttribute("viewBox", `0 0 1090 ${height}`);
+  svg.setAttribute("width", "1090");
   svg.setAttribute("height", height);
-  const max = maxRequests(data.edges);
+  const max = Math.max(1, ...data.edges.map((e) => e.requests));
+  const focus = selected || hovered;
   const linked = new Set();
-  if (selected) {
-    for (const e of data.edges) {
-      if (e.from === selected || e.to === selected) { linked.add(e.from); linked.add(e.to); }
-    }
+  if (focus) for (const e of data.edges) {
+    if (e.from === focus || e.to === focus) { linked.add(e.from); linked.add(e.to); }
   }
+
   let out = "";
+  // Column bands: the stage each node belongs to is structural, so it gets a lane, not a colour.
   for (const c of COLS) {
-    out += `<text class="colhead" x="${X[c.kind]}" y="26">${c.title} · ${byKind[c.kind].length}</text>`;
+    const count = byKind[c.kind].length;
+    const bandTop = 34, bandH = height - bandTop - 8;
+    out += `<rect x="${X[c.kind] - 10}" y="${bandTop}" width="${NODE_W[c.kind] + 20}" height="${bandH}"
+              rx="10" fill="var(--panel)" stroke="var(--hair)"/>`;
+    out += `<text class="colhead" x="${X[c.kind]}" y="24">${c.title}</text>`;
+    out += `<text class="colcount" x="${X[c.kind] + NODE_W[c.kind]}" y="24" text-anchor="end">${count}</text>`;
   }
+
   for (const e of data.edges) {
     const a = byKind[e.from.split(":")[0]]?.find((n) => n.id === e.from);
     const b = byKind[e.to.split(":")[0]]?.find((n) => n.id === e.to);
     if (!a || !b) continue;
     const st = stateOf(e);
-    const hot = !selected || e.from === selected || e.to === selected;
+    const hot = !focus || e.from === focus || e.to === focus;
     const w = widthFor(e.requests, max);
-    out += `<path class="edge ${st}${hot ? " hot" : " dim"}" d="${path(a, b)}"
-      stroke="${STROKE[st]}" stroke-width="${st === "failing" ? w + 1 : w}"
-      stroke-dasharray="${DASH[st]}"/>`;
+    out += `<path class="edge ${st}${hot ? "" : " dim"}" d="${path(a, b)}"
+              stroke="${STROKE[st]}" stroke-width="${st === "failing" ? w + 1 : w}"
+              stroke-dasharray="${DASH[st]}"/>`;
     if (e.requests > 0 && hot) {
-      const lx = a.x + a.w + 8, ly = Math.min(a.y, b.y) + 12 + Math.abs(b.y - a.y) / 2;
-      const txt = `${GLYPH[st]} ${fmtNum(e.requests)}` +
-        (e.cost ? ` · ${fmtMoney(e.cost)}` : "") + (e.failures ? ` · ✕${e.failures}` : "");
-      out += `<text class="elabel" x="${lx}" y="${ly}">${txt}</text>`;
+      out += `<path class="flow" d="${path(a, b)}" stroke="${STROKE[st]}"
+                stroke-width="${Math.min(2.6, w)}" style="animation-duration:${flowSeconds(e.requests, max)}s"/>`;
+    }
+    // Labels only for the focused node's links: all-at-once turns a topology into noise.
+    if (e.requests > 0 && focus && hot) {
+      const lx = a.x + a.w + 10, ly = Math.min(a.y, b.y) + NODE_H / 2 + Math.abs(b.y - a.y) / 2;
+      out += `<text class="elabel" x="${lx}" y="${ly}">${GLYPH[st]} ${fmtNum(e.requests)}` +
+        (e.cost ? ` · ${fmtMoney(e.cost)}` : "") + (e.failures ? ` · ✕${e.failures}` : "") + `</text>`;
     }
   }
+
   for (const c of COLS) {
     for (const n of byKind[c.kind]) {
-      const dim = selected && !linked.has(n.id) && n.id !== selected;
-      // Border colour is reserved for state; an ordinary node is neutral, so a red or amber
-      // outline always means "this is not what the config says", never "this is a tier".
+      const dim = focus && !linked.has(n.id) && n.id !== focus;
       const ungoverned = n.kind === "tier" && !n.meta.provider_policy;
       const accent = n.meta.off_config || n.meta.off_chain ? "var(--failing)"
                    : ungoverned ? "var(--fallback)"
@@ -224,36 +261,86 @@ function render() {
       let badge = "";
       if (n.kind === "tier") {
         const g = gateText(n);
-        const w = 10 + g.length * 5.8;
+        const bw = 12 + g.length * 5.4;
         const col = g === "no gate" ? "var(--failing)" : g.startsWith("zdr") ? "var(--healthy)" : "var(--fallback)";
-        badge = `<rect x="${n.x + n.w - w - 6}" y="${n.y + 6}" width="${w}" height="14" rx="7"
-                   fill="none" stroke="${col}" stroke-width="1"/>
-                 <text class="gate" x="${n.x + n.w - w / 2 - 6}" y="${n.y + 16}"
+        badge = `<rect x="${n.x + n.w - bw - 7}" y="${n.y + 7}" width="${bw}" height="14" rx="7"
+                   fill="var(--surface)" stroke="${col}" stroke-width="1"/>
+                 <text class="gate" x="${n.x + n.w - bw / 2 - 7}" y="${n.y + 17}"
                    text-anchor="middle" fill="${col}">${escapeHtml(g)}</text>`;
       }
-      out += `<g class="node${dim ? " dim" : ""}" data-id="${n.id}" tabindex="0">
-        <rect x="${n.x}" y="${n.y}" width="${n.w}" height="34" fill="#fff"
-              stroke="${accent}" stroke-width="${n.id === selected ? 2.5 : 1.3}"
-              stroke-dasharray="${n.requests === 0 ? "3 3" : ""}"/>
-        <text class="name" x="${n.x + 9}" y="${n.y + 15}">${escapeHtml(n.label)}</text>
-        <text class="stat" x="${n.x + 9}" y="${n.y + 28}">${escapeHtml(nodeLabel(n))}</text>
+      const probe = n.kind === "synthetic" || n.kind === "unknown";
+      out += `<g class="node${dim ? " dim" : ""}" data-id="${n.id}" tabindex="0" role="button"
+                aria-label="${escapeHtml(n.kind + " " + n.label)}">
+        <rect x="${n.x}" y="${n.y}" width="${n.w}" height="${NODE_H}" rx="8" fill="var(--surface)"
+              stroke="${accent}" stroke-width="${n.id === selected ? 2.4 : 1.2}"
+              stroke-dasharray="${probe ? "4 3" : (n.requests === 0 ? "3 3" : "")}"/>
+        <text class="name${n.kind === "model" ? " model" : ""}${probe ? " probe" : ""}" x="${n.x + 10}" y="${n.y + 16}">${escapeHtml(n.label)}</text>
+        <text class="stat" x="${n.x + 10}" y="${n.y + 29}">${escapeHtml(nodeLabel(n))}</text>
         ${badge}
       </g>`;
     }
   }
   svg.innerHTML = out;
-  svg.querySelectorAll(".node").forEach((g) => {
-    g.addEventListener("click", () => { selected = selected === g.dataset.id ? null : g.dataset.id; render(); });
-    g.addEventListener("keydown", (ev) => { if (ev.key === "Enter") g.dispatchEvent(new Event("click")); });
-  });
+  wireNodes(svg);
   const sel = data.nodes.find((n) => n.id === selected);
   $("detail").innerHTML = sel ? describe(sel) : "Click a node to isolate its links.";
 }
 
-function peerOf(edge, fromMe) {
-  const id = fromMe ? edge.to : edge.from;
-  return id.split(":").slice(1).join(":");
+function wireNodes(svg) {
+  svg.querySelectorAll(".node").forEach((g) => {
+    const id = g.dataset.id;
+    // Only re-render when the focus actually changes: render() replaces the element under the
+    // cursor, whose fresh pointerenter would otherwise re-enter this handler forever.
+    g.addEventListener("pointerenter", () => { if (!dragging && hovered !== id) { hovered = id; render(); } });
+    g.addEventListener("pointerleave", () => { if (!dragging && hovered === id) { hovered = null; render(); } });
+    g.addEventListener("click", () => {
+      if (g.dataset.moved === "1") { g.dataset.moved = "0"; return; }   // a drag is not a click
+      selected = selected === id ? null : id;
+      render();
+    });
+    g.addEventListener("keydown", (ev) => { if (ev.key === "Enter" || ev.key === " ") {
+      ev.preventDefault(); selected = selected === id ? null : id; render(); } });
+    g.addEventListener("pointerdown", (ev) => startDrag(ev, g, id));
+  });
 }
+
+let dragging = null;
+function startDrag(ev, g, id) {
+  if (ev.button !== 0) return;
+  const node = data.nodes.find((n) => n.id === id);
+  if (!node) return;
+  const svg = $("graph");
+  const pt = clientToSvg(svg, ev);
+  dragging = {id, node, dx: pt.x - node.x, dy: pt.y - node.y, moved: false};
+  g.classList.add("dragging");
+  g.setPointerCapture(ev.pointerId);
+  ev.preventDefault();
+}
+function clientToSvg(svg, ev) {
+  const box = svg.getBoundingClientRect();
+  const vb = svg.viewBox.baseVal;
+  return {x: (ev.clientX - box.left) * (vb.width / box.width),
+          y: (ev.clientY - box.top) * (vb.height / box.height)};
+}
+window.addEventListener("pointermove", (ev) => {
+  if (!dragging) return;
+  const svg = $("graph");
+  const pt = clientToSvg(svg, ev);
+  const nx = Math.max(4, pt.x - dragging.dx), ny = Math.max(34, pt.y - dragging.dy);
+  if (Math.abs(nx - dragging.node.x) > 2 || Math.abs(ny - dragging.node.y) > 2) dragging.moved = true;
+  dragging.node.x = nx; dragging.node.y = ny;
+  positions[dragging.id] = {x: nx, y: ny};
+  render();
+});
+window.addEventListener("pointerup", () => {
+  if (!dragging) return;
+  localStorage.setItem(POS_KEY, JSON.stringify(positions));
+  const g = document.querySelector(`.node[data-id="${CSS.escape(dragging.id)}"]`);
+  if (g) { g.classList.remove("dragging"); if (dragging.moved) g.dataset.moved = "1"; }
+  dragging = null;
+});
+
+function peerOf(edge, fromMe) { return (fromMe ? edge.to : edge.from).split(":").slice(1).join(":"); }
 
 function linkTable(edges, fromMe, heading, empty) {
   if (!edges.length) return `<div><h3>${heading}</h3><div class="kv"><span>${empty}</span></div></div>`;
@@ -274,7 +361,7 @@ function describe(n) {
   const outs = data.edges.filter((e) => e.from === n.id);
   const ins = data.edges.filter((e) => e.to === n.id);
   const chips = [
-    `${n.kind}`,
+    n.kind,
     `${n.requests.toLocaleString()} requests`,
     fmtMoney(n.cost),
     `${fmtNum(n.input_tokens)} in`,
@@ -307,7 +394,7 @@ function describe(n) {
 
 function renderMatrix() {
   const panel = $("matrixpanel");
-  const cells = (data.latency && data.latency.cells) || [];
+  const cells = (data && data.latency && data.latency.cells) || [];
   if (!showMatrix || !cells.length) { panel.hidden = true; return; }
   panel.hidden = false;
   const {agents, tiers} = data.latency;
@@ -360,16 +447,23 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"]/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
 }
 
+let lastLoad = 0;
+function tickStamp() {
+  if (!data || !lastLoad) return;
+  const secs = Math.round((Date.now() - lastLoad) / 1000);
+  $("stamp").textContent = `window ${$("scope").value} · ${data.summary.requests} requests · ` +
+    `${data.summary.cost ? fmtMoney(data.summary.cost) : "$0"} · refreshed ${secs}s ago · upstream ${data.upstream}` +
+    (data.config_available ? "" : " · CONFIG UNREADABLE: " + data.config_error);
+}
+
 async function load() {
   const scope = $("scope").value;
   try {
     const r = await fetch(`/api/dashboard/topology?scope=${encodeURIComponent(scope)}`, {cache: "no-store"});
     if (!r.ok) throw new Error("HTTP " + r.status);
     data = await r.json();
-    $("stamp").textContent = `window: ${scope} · ${data.summary.requests} requests · ` +
-      `generated ${data.generated_at} · upstream ${data.upstream}` +
-      (data.config_available ? "" : " · CONFIG UNREADABLE: " + data.config_error);
-    chips(); render(); renderMatrix();
+    lastLoad = Date.now();
+    tickStamp(); chips(); render(); renderMatrix();
   } catch (err) {
     $("graph").innerHTML = "";
     $("stamp").innerHTML = `<span class="err">topology unavailable: ${escapeHtml(err.message)} — ` +
@@ -381,16 +475,26 @@ $("scope").addEventListener("change", load);
 $("refresh").addEventListener("click", () => {
   auto = !auto;
   $("refresh").setAttribute("aria-pressed", String(auto));
-  $("refresh").textContent = "auto-refresh: " + (auto ? "on" : "off");
 });
-let showMatrix = false;
+$("flow").addEventListener("click", () => {
+  showFlow = !showFlow;
+  document.body.classList.toggle("noflow", !showFlow);
+  $("flow").setAttribute("aria-pressed", String(showFlow));
+});
 $("matrix").addEventListener("click", () => {
   showMatrix = !showMatrix;
   $("matrix").setAttribute("aria-pressed", String(showMatrix));
   renderMatrix();
 });
-let auto = true;
+$("reset").addEventListener("click", () => {
+  positions = {};
+  localStorage.removeItem(POS_KEY);
+  render();
+});
+document.body.classList.toggle("noflow", !showFlow);
+$("flow").setAttribute("aria-pressed", String(showFlow));
 setInterval(() => { if (auto) load(); }, 20000);
+setInterval(tickStamp, 1000);
 load();
 </script>
 </body>
