@@ -545,6 +545,72 @@ def test_config_panel_shows_each_tiers_governance_floor_and_names_the_gaps(monke
     assert cfg["tiers_without_governance_policy"] == ["balanced", "unused"]
 
 
+def topology_for(monkeypatch, tmp_path, client, rows):
+    use_db(monkeypatch, make_db(tmp_path / "tel.db", rows))
+    config_path = tmp_path / "router_config.json"
+    config_path.write_text(json.dumps(TEST_CONFIG), encoding="utf-8")
+    monkeypatch.setattr(dashboard, "CONFIG_PATH", config_path)
+    return client.get("/api/dashboard/topology?scope=recent&recent=5").json()
+
+
+def test_topology_still_draws_declared_routes_that_drew_no_traffic(monkeypatch, tmp_path, client):
+    """An idle route is a fact about the wiring; omitting it would make the diagram lie."""
+    topo = topology_for(monkeypatch, tmp_path, client, [{"selected_tier": "fast", "actual_model": "m1"}])
+    nodes = {n["id"]: n for n in topo["nodes"]}
+    assert nodes["tier:unused"]["meta"]["idle"] is True
+    assert any(e["from"] == "tier:unused" and e["to"] == "model:m9" and e.get("declared_only")
+               for e in topo["edges"])
+
+
+def test_topology_never_serves_the_config_credential(monkeypatch, tmp_path, client):
+    """The topology endpoint reads router_config.json, which in tests carries a live-shaped
+    api_key. Only the env-var *name* and the upstream host may leave the process."""
+    topo = topology_for(monkeypatch, tmp_path, client, [{"selected_tier": "fast", "actual_model": "m1"}])
+    body = json.dumps(topo)
+    assert "sk-LEAK-CHECK" not in body
+    assert "api_key" not in body
+
+
+def test_topology_chains_caller_to_tier_to_model_to_upstream(monkeypatch, tmp_path, client):
+    topo = topology_for(monkeypatch, tmp_path, client, [{"selected_tier": "fast", "actual_model": "m1"}])
+    pairs = {(e["from"], e["to"]) for e in topo["edges"]}
+    assert ("agent:tester", "tier:fast") in pairs
+    assert ("tier:fast", "model:m1") in pairs
+    assert any(f == "model:m1" and t.startswith("upstream:") for f, t in pairs)
+
+
+def test_topology_flags_a_model_served_outside_its_tiers_declared_chain(monkeypatch, tmp_path, client):
+    """This is what a fallback firing looks like from the outside - it must be visible, not smoothed over."""
+    topo = topology_for(monkeypatch, tmp_path, client, [{"selected_tier": "fast", "actual_model": "zzz"}])
+    assert "zzz" in topo["summary"]["off_chain_models"]
+
+
+def test_topology_flags_traffic_on_a_tier_that_is_not_in_the_config(monkeypatch, tmp_path, client):
+    topo = topology_for(monkeypatch, tmp_path, client, [{"selected_tier": "ghost", "actual_model": "m1"}])
+    assert "ghost" in topo["summary"]["off_config_tiers"]
+
+
+def test_topology_keeps_probe_traffic_separate_from_real_callers(monkeypatch, tmp_path, client):
+    """Benchmark runs must not be drawn as if an agent were paying for them."""
+    topo = topology_for(monkeypatch, tmp_path, client,
+                        [{"agent": "benchmark"}, {"agent": "coordinator"}])
+    kinds = {n["label"]: n["kind"] for n in topo["nodes"] if n["kind"] in ("caller", "synthetic")}
+    assert kinds == {"benchmark": "synthetic", "coordinator": "caller"}
+    assert topo["summary"]["callers"] == 1 and topo["summary"]["synthetic_callers"] == 1
+
+
+def test_topology_counts_failures_on_the_link_that_hit_them(monkeypatch, tmp_path, client):
+    topo = topology_for(monkeypatch, tmp_path, client,
+                        [{"selected_tier": "balanced", "actual_model": "m3", "success": 0, "http_status": 502}])
+    edge = next(e for e in topo["edges"] if e["from"] == "tier:balanced" and e["to"] == "model:m3")
+    assert (edge["requests"], edge["failures"]) == (1, 1)
+
+
+def test_topology_names_tiers_that_carry_no_governance_gate(monkeypatch, tmp_path, client):
+    topo = topology_for(monkeypatch, tmp_path, client, [])
+    assert topo["summary"]["ungoverned_tiers"] == ["balanced", "unused"]
+
+
 def test_config_panel_reports_traffic_on_a_tier_that_is_not_configured(monkeypatch, tmp_path, client):
     cfg = config_client(monkeypatch, tmp_path, client)
     assert [t["tier"] for t in cfg["traffic_without_tier"]] == ["deep"]

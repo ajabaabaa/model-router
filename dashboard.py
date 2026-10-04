@@ -607,6 +607,141 @@ def _unavailable(exc: BaseException) -> JSONResponse:
     return JSONResponse({"error": "dashboard_unavailable", "cause": exc.__class__.__name__}, status_code=503)
 
 
+SYNTHETIC_AGENT_KEYS = ("benchmark", "verify", "smoketest", "ab-", "cand")
+
+
+def _agent_kind(agent: str | None) -> str:
+    """Separate real callers from probe traffic, so the drawing cannot present a benchmark
+    run as if an agent were paying for it."""
+    name = (agent or "").strip().lower()
+    if not name:
+        return "unknown"
+    return "synthetic" if any(k in name for k in SYNTHETIC_AGENT_KEYS) else "caller"
+
+
+def build_topology(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Callers -> tiers -> models -> upstream, with the traffic each link actually carried.
+
+    The declared chains are emitted first so a route that is idle still shows up; a link
+    carrying traffic that its tier never declared is flagged rather than hidden, because
+    that is what a fallback firing looks like from the outside.
+    """
+    config = load_router_config()
+    tiers = config["tiers"]
+    base_url = str((config.get("upstream") or {}).get("base_url") or "")
+    upstream_host = base_url.split("//")[-1].split("/")[0] or "openrouter"
+    upstream_id = f"upstream:{upstream_host}"
+
+    nodes: dict[str, dict[str, Any]] = {}
+    edges: dict[tuple[str, str], dict[str, Any]] = {}
+
+    def add_node(node_id: str, kind: str, label: str, **meta: Any) -> dict[str, Any]:
+        node = nodes.get(node_id)
+        if node is None:
+            node = {"id": node_id, "kind": kind, "label": label, "meta": {},
+                    "requests": 0, "cost": 0.0, "input_tokens": 0, "output_tokens": 0,
+                    "failures": 0, "last_seen": None}
+            nodes[node_id] = node
+        node["meta"].update({k: v for k, v in meta.items() if v not in (None, {}, [])})
+        return node
+
+    def add_edge(src: str, dst: str, declared: str | None = None) -> dict[str, Any]:
+        edge = edges.get((src, dst))
+        if edge is None:
+            edge = {"from": src, "to": dst, "declared": declared, "requests": 0, "cost": 0.0,
+                    "input_tokens": 0, "output_tokens": 0, "failures": 0, "fallbacks": 0,
+                    "truncated": 0, "latencies": [], "last_seen": None}
+            edges[(src, dst)] = edge
+        if declared and edge["declared"] is None:
+            edge["declared"] = declared
+        return edge
+
+    declared_chain: dict[str, set[str]] = {}
+    for name, tier in tiers.items():
+        if not isinstance(tier, dict):
+            continue
+        tier_id = f"tier:{name}"
+        add_node(tier_id, "tier", name, provider_policy=tier.get("provider_policy"),
+                 min_max_tokens=tier.get("min_max_tokens"))
+        chain = [tier.get("primary"), *list(tier.get("fallbacks") or [])]
+        declared_chain[name] = {m for m in chain if m}
+        for position, model in enumerate(m for m in chain if m):
+            add_node(f"model:{model}", "model", model)
+            add_edge(tier_id, f"model:{model}", "primary" if position == 0 else f"fallback-{position}")
+    add_node(upstream_id, "upstream", upstream_host)
+
+    for row in rows:
+        agent = (row.get("agent") or "").strip()
+        tier_name = row.get("selected_tier") or "(none)"
+        model = row.get("actual_model") or "(none)"
+        agent_id = f"agent:{agent or '(untagged)'}"
+        tier_id = f"tier:{tier_name}"
+        model_id = f"model:{model}"
+        add_node(agent_id, _agent_kind(agent), agent or "(untagged)")
+        add_node(tier_id, "tier", tier_name,
+                 **({} if tier_name in tiers else {"off_config": True}))
+        add_node(model_id, "model", model,
+                 **({} if model in declared_chain.get(tier_name, {model}) else {"off_chain": True}))
+        stamp = row.get("timestamp")
+        cost = float(row.get("estimated_cost") or 0)
+        ok = _is_true(row.get("success"))
+        for edge in (add_edge(agent_id, tier_id), add_edge(tier_id, model_id),
+                     add_edge(model_id, upstream_id)):
+            edge["requests"] += 1
+            edge["cost"] += cost
+            edge["input_tokens"] += int(row.get("input_tokens") or 0)
+            edge["output_tokens"] += int(row.get("output_tokens") or 0)
+            edge["failures"] += 0 if ok else 1
+            edge["fallbacks"] += 1 if int(row.get("fallback_count") or 0) else 0
+            edge["truncated"] += 1 if row.get("finish_reason") == "length" else 0
+            if row.get("latency_ms") is not None:
+                edge["latencies"].append(float(row["latency_ms"]))
+            if stamp and (edge["last_seen"] is None or stamp > edge["last_seen"]):
+                edge["last_seen"] = stamp
+        for node in (nodes[agent_id], nodes[tier_id], nodes[model_id], nodes[upstream_id]):
+            node["requests"] += 1
+            node["cost"] += cost
+            node["input_tokens"] += int(row.get("input_tokens") or 0)
+            node["output_tokens"] += int(row.get("output_tokens") or 0)
+            node["failures"] += 0 if ok else 1
+            if stamp and (node["last_seen"] is None or stamp > node["last_seen"]):
+                node["last_seen"] = stamp
+
+    for name in tiers:
+        nodes[f"tier:{name}"]["meta"]["idle"] = nodes[f"tier:{name}"]["requests"] == 0
+    for edge in edges.values():
+        edge["cost"] = round(edge["cost"], 6)
+        if edge["requests"] == 0:
+            edge["declared_only"] = True
+        lat = sorted(edge.pop("latencies"))
+        edge["p50_latency_ms"] = round(statistics.median(lat), 1) if lat else None
+        p95 = _percentile(lat, 0.95)  # takes a fraction, not 0-100
+        edge["p95_latency_ms"] = round(p95, 1) if p95 is not None else None
+
+    return {
+        "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "config_available": config["available"], "config_error": config["error"],
+        "upstream": upstream_host,
+        "nodes": sorted(nodes.values(), key=lambda n: (n["kind"], -n["requests"], n["label"])),
+        "edges": sorted(edges.values(), key=lambda e: (e["from"], -e["requests"])),
+        "summary": {
+            "requests": len(rows),
+            "cost": round(sum(float(r.get("estimated_cost") or 0) for r in rows), 6),
+            "callers": sum(1 for n in nodes.values() if n["kind"] == "caller"),
+            "synthetic_callers": sum(1 for n in nodes.values() if n["kind"] == "synthetic"),
+            "tiers": sum(1 for n in nodes.values() if n["kind"] == "tier"),
+            "models": sum(1 for n in nodes.values() if n["kind"] == "model"),
+            "off_config_tiers": sorted(n["label"] for n in nodes.values()
+                                        if n["kind"] == "tier" and n["meta"].get("off_config")),
+            "off_chain_models": sorted({n["label"] for n in nodes.values()
+                                         if n["kind"] == "model" and n["meta"].get("off_chain")}),
+            "ungoverned_tiers": sorted(n["label"] for n in nodes.values()
+                                        if n["kind"] == "tier" and n["label"] in tiers
+                                        and not (tiers.get(n["label"]) or {}).get("provider_policy")),
+        },
+    }
+
+
 def _guarded(builder: Callable[[], dict[str, Any]]):
     try:
         return builder()
@@ -697,12 +832,33 @@ def dashboard_groupings(scope: str = Query("last_24_hours"),
     return _guarded(lambda: build_groupings(scope, recent, by, start, end, snapshot, include_legacy))
 
 
+@router.get("/api/dashboard/topology")
+def dashboard_topology(recent: int = Query(100, ge=MIN_WINDOW, le=MAX_WINDOW),
+                       scope: str = Query("last_24_hours"), start: str | None = None,
+                       end: str | None = None, snapshot: str | None = None) -> Any:
+    """The routing graph: which caller reached which tier, which model actually served."""
+    def build():
+        rows, _ = read_scoped_rows(scope, recent, start, end, snapshot)
+        return build_topology(rows)
+    return _guarded(build)
+
+
 @router.get("/dashboard", include_in_schema=False)
 def dashboard_page() -> Any:
     try:
         return HTMLResponse(PAGE_PATH.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError):
         return HTMLResponse("<!doctype html><title>dashboard unavailable</title><p>static/dashboard.html could not be read.</p>", status_code=503)
+
+
+@router.get("/architecture", include_in_schema=False)
+def architecture_page() -> Any:
+    """Live wiring diagram. Read per request like the dashboard, so edits land without a restart."""
+    try:
+        return HTMLResponse((STATIC_DIR / "architecture.html").read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError):
+        return HTMLResponse("<!doctype html><title>architecture view unavailable</title>"
+                            "<p>static/architecture.html could not be read.</p>", status_code=503)
 
 
 @router.get("/dashboard/vendor/chart.umd.min.js", include_in_schema=False)
