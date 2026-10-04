@@ -49,7 +49,9 @@ print(f"requests      {reqs:>7}")
 print(f"spend         ${cost:>7.4f}")
 print(f"tokens        in {tin:,}  out {tout:,}")
 if tin:
-    print(f"effective     ${cost / (tin / 1e6):.4f} per 1M input-equivalent")
+    # Deliberately NOT cost/input-tokens: after the routing change output dominates (one window
+    # was 983 in vs 19,890 out), so that ratio reads like a frontier model price and means nothing.
+    print(f"per request   ${cost / reqs:.5f}" if reqs else "")
 if reqs:
     week_actual = window("-7 days")[1] or 0.0
     # Project from the freshest 20 minutes, not the whole window: right after a routing change
