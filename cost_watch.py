@@ -5,6 +5,7 @@ Exit 0 = OK, 1 = at least one ALERT line emitted (so a scheduler can key off it)
 """
 
 import json
+import os
 import sqlite3
 import sys
 import urllib.request
@@ -27,8 +28,11 @@ conn = sqlite3.connect(f"file:{DB}?mode=ro", uri=True)
 # OpenHuman and OpenClaw have no usable failover if this process dies - their fallback chains
 # resolve to other tiers on this same server, and OpenHuman's reliability.model_fallbacks is
 # dead config in 0.64.10. Liveness is therefore part of the cost watch, not a separate concern.
-for probe, label in (("http://127.0.0.1:6060/health", "/health"),
-                     ("http://127.0.0.1:6060/v1/models", "/v1/models")):
+# Overridable so the alert path can be exercised for real (point it at a dead port) instead of
+# trusting a code path that only ever runs when something is already wrong.
+PROBE_BASE = os.environ.get("COST_WATCH_PROBE_BASE", "http://127.0.0.1:6060").rstrip("/")
+for probe, label in ((PROBE_BASE + "/health", "/health"),
+                     (PROBE_BASE + "/v1/models", "/v1/models")):
     try:
         with urllib.request.urlopen(probe, timeout=15) as resp:
             if resp.status != 200:
