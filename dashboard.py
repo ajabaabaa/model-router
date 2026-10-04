@@ -576,14 +576,22 @@ def build_config(rows: list[dict[str, Any]]) -> dict[str, Any]:
             "provider": tier.get("provider") if isinstance(tier, dict) else None,
             "primary": tier.get("primary") if isinstance(tier, dict) else None,
             "fallbacks": list(tier.get("fallbacks") or []) if isinstance(tier, dict) else [],
+            # The governance floor the router injects upstream (e.g. {"zdr": true}). Surfaced so a
+            # missing or mistyped policy is visible on the page instead of silently unenforced.
+            "provider_policy": (tier.get("provider_policy")
+                                if isinstance(tier, dict) and isinstance(tier.get("provider_policy"), dict)
+                                else {}),
             "observed": _aggregate(members, len(attributed), window_cost) if members else None,
             "served_models_off_config": sorted(m for m in served if m not in declared),
         })
+    gaps = sorted(t["tier"] for t in tiers
+                  if isinstance(config["tiers"].get(t["tier"]), dict) and not t["provider_policy"])
     upstream = config["upstream"]
     return {
         "config_available": config["available"], "config_error": config["error"],
         "config_path": CONFIG_PATH.name,
         "tiers": tiers,
+        "tiers_without_governance_policy": gaps,
         "tiers_without_traffic": sorted(t["tier"] for t in tiers if not t["observed"]),
         "traffic_without_tier": [{"tier": name, **_aggregate(members, len(attributed), window_cost)}
                                  for name, members in buckets.items() if name not in config["tiers"]],

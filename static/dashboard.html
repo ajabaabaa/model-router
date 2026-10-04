@@ -181,7 +181,7 @@
   <div class="scroll">
     <table>
       <thead><tr>
-        <th>Tier</th><th>Primary</th><th>Fallbacks</th><th>Requests</th><th>Cost</th>
+        <th>Tier</th><th>Primary</th><th>Fallbacks</th><th>Governance</th><th>Requests</th><th>Cost</th>
         <th>% of cost</th><th>Avg input</th><th>Avg output</th><th>p95 latency</th>
         <th>Fell back</th><th>Usage missing</th>
       </tr></thead>
@@ -655,19 +655,27 @@
       label: tier.tier + (cfg.tiers_without_traffic.includes(tier.tier) ? " · no traffic" : ""),
       primary: tier.primary ?? "–",
       fallbacks: tier.fallbacks.length ? tier.fallbacks.join(", ") : "none",
+      policy: (tier.provider_policy && Object.keys(tier.provider_policy).length)
+        ? Object.entries(tier.provider_policy).map(([k, v]) => `${k}=${v}`).join(", ")
+        : "NONE",
       observed: tier.observed,
       off: tier.served_models_off_config,
     }));
     const orphans = (cfg.traffic_without_tier || []).map((entry) => ({
-      label: entry.tier + " · not in config", primary: "–", fallbacks: "–", observed: entry, off: [],
+      label: entry.tier + " · not in config", primary: "–", fallbacks: "–", policy: "–",
+      observed: entry, off: [],
     }));
     fillTable("config-body", "config-empty", [...configured, ...orphans],
-      (row) => [row.label, row.primary, row.fallbacks, ...observedCells(row.observed)]);
+      (row) => [row.label, row.primary, row.fallbacks, row.policy, ...observedCells(row.observed)]);
 
     const notes = [];
     if (!cfg.config_available) {
       notes.push(`router_config.json could not be read (${cfg.config_error}); ` +
         "the rows below come from telemetry alone, so a tier may be missing its configuration.");
+    }
+    if ((cfg.tiers_without_governance_policy || []).length) {
+      notes.push(`No governance floor on: ${cfg.tiers_without_governance_policy.join(", ")} - ` +
+        "requests to those tiers reach OpenRouter with no zdr/data_collection policy injected.");
     }
     if (cfg.tiers_without_traffic.length) {
       notes.push(`Configured but unused in this scope: ${cfg.tiers_without_traffic.join(", ")}.`);

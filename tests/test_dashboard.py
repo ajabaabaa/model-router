@@ -7,7 +7,7 @@ column whitelist does the protecting rather than the absence of a content column
 
 import json
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -447,13 +447,20 @@ def test_timeseries_buckets_agents_and_single_day_projection_unavailable(client)
 
 
 def test_timeseries_projection_flags_unstable_linear_fit(monkeypatch, tmp_path):
+    # Dates are relative to now because the endpoint scopes by a rolling window: hard-coded
+    # timestamps silently fell out of `last_7_days`. They are also all in the *past* - a fixture
+    # hour later than the current UTC hour gets dropped by the window's upper bound.
+    def at(days_ago, hour):
+        day = (datetime.now(timezone.utc) - timedelta(days=days_ago)).strftime("%Y-%m-%d")
+        return f"{day}T{hour:02d}:00:00Z"
+
     rows = [
-        {"timestamp": "2026-09-26T12:00:00Z", "estimated_cost": 0.01, "agent": "a"},
-        {"timestamp": "2026-09-26T13:00:00Z", "estimated_cost": 0.01, "agent": "a"},
-        {"timestamp": "2026-09-27T12:00:00Z", "estimated_cost": 0.01, "agent": "b"},
-        {"timestamp": "2026-09-27T13:00:00Z", "estimated_cost": 0.01, "agent": "b"},
-        {"timestamp": "2026-09-28T12:00:00Z", "estimated_cost": 5.00, "agent": "a"},
-        {"timestamp": "2026-09-28T13:00:00Z", "estimated_cost": 5.00, "agent": "a"},
+        {"timestamp": at(3, 12), "estimated_cost": 0.01, "agent": "a"},
+        {"timestamp": at(3, 13), "estimated_cost": 0.01, "agent": "a"},
+        {"timestamp": at(2, 12), "estimated_cost": 0.01, "agent": "b"},
+        {"timestamp": at(2, 13), "estimated_cost": 0.01, "agent": "b"},
+        {"timestamp": at(1, 12), "estimated_cost": 5.00, "agent": "a"},
+        {"timestamp": at(1, 13), "estimated_cost": 5.00, "agent": "a"},
     ]
     use_db(monkeypatch, make_db(tmp_path / "tel.db", rows))
     client = TestClient(app.app)
@@ -480,7 +487,8 @@ def test_recent_table_exposes_agent_column(client):
 
 TEST_CONFIG = {
     "tiers": {
-        "fast": {"provider": "openrouter", "primary": "m1", "fallbacks": ["m2"]},
+        "fast": {"provider": "openrouter", "primary": "m1", "fallbacks": ["m2"],
+                 "provider_policy": {"zdr": True}},
         # m4 actually served balanced traffic but is not declared here, so the panel must
         # surface it: this is how a hand-edited config drifts away from what runs.
         "balanced": {"provider": "openrouter", "primary": "m3", "fallbacks": []},
@@ -525,6 +533,16 @@ def test_config_panel_surfaces_models_that_served_traffic_off_config(monkeypatch
     tiers = {t["tier"]: t for t in cfg["tiers"]}
     assert tiers["balanced"]["served_models_off_config"] == ["m4"]
     assert tiers["fast"]["served_models_off_config"] == []
+
+
+def test_config_panel_shows_each_tiers_governance_floor_and_names_the_gaps(monkeypatch, tmp_path, client):
+    """A tier without a policy is silently un-governed; the panel must say so rather than
+    let the column read blank."""
+    cfg = config_client(monkeypatch, tmp_path, client)
+    tiers = {t["tier"]: t for t in cfg["tiers"]}
+    assert tiers["fast"]["provider_policy"] == {"zdr": True}
+    assert tiers["balanced"]["provider_policy"] == {}
+    assert cfg["tiers_without_governance_policy"] == ["balanced", "unused"]
 
 
 def test_config_panel_reports_traffic_on_a_tier_that_is_not_configured(monkeypatch, tmp_path, client):

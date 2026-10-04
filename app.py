@@ -211,6 +211,14 @@ async def chat_completions(request: Request):
         body = await request.json()
         requested_tier, tier, routing_reason, routing_automatic, agent_tag = select_tier(body)
         if agent_tag: metadata["agent"] = agent_tag
+        # Last resort, and deliberately ranked below both the "#tag" and the header: OpenHuman
+        # sends a bare tier name ("balanced") with no identifying header, which otherwise lands
+        # as one unattributed blob. Only that exact shape is labelled, so an explicit header on
+        # the same request still wins.
+        if metadata.get("agent") is None:
+            requested_model = body.get("model")
+            if isinstance(requested_model, str) and "/" not in requested_model and "#" not in requested_model:
+                metadata["agent"] = "openhuman"
         budget_header = request.headers.get("x-router-total-budget-ms")
         attempt_budget_header = request.headers.get("x-router-benchmark-attempt-budgets-ms")
         attempt_budgets = [float(x) / 1000 for x in attempt_budget_header.split(",") if x.strip()] if attempt_budget_header else None
@@ -234,6 +242,15 @@ async def chat_completions(request: Request):
                 reasoning = {}
             reasoning.setdefault("effort", default_effort)
             upstream_body["reasoning"] = reasoning
+        # A tier may declare a governance floor (e.g. {"zdr": true}) that OpenRouter enforces
+        # while picking an endpoint. Merge under the client's own "provider" object so routing
+        # hints survive, but the floor's keys win: a caller must not be able to route around it.
+        policy = tier_cfg.get("provider_policy")
+        if isinstance(policy, dict) and policy:
+            client_provider = upstream_body.get("provider")
+            provider_opts = dict(client_provider) if isinstance(client_provider, dict) else {}
+            provider_opts.update(policy)
+            upstream_body["provider"] = provider_opts
         headers = {"Authorization":f"Bearer {key}","Content-Type":"application/json","HTTP-Referer":"http://127.0.0.1:6060","X-Title":"openclaw-router"}
         url = cfg["openrouter"].get("base_url","https://openrouter.ai/api/v1").rstrip("/")+"/chat/completions"
         timeout = cfg["openrouter"].get("timeout_seconds", 120)

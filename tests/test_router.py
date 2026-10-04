@@ -279,6 +279,7 @@ def test_non_streaming_network_failure_falls_back(monkeypatch, tmp_path):
 
 def test_non_streaming_network_failure_exhausts_fallbacks(monkeypatch, tmp_path):
     monkeypatch.setattr(app, "DB_PATH", tmp_path / "telemetry.db"); app.init_db(); monkeypatch.setenv("OPENROUTER_KEY", "test-key")
+    monkeypatch.setattr(app, "load_config", lambda: fixed_chain_config("fast", "p1", ["p2", "p3"]))
     class Client:
         def __init__(self, **kwargs): pass
         async def __aenter__(self): return self
@@ -287,7 +288,7 @@ def test_non_streaming_network_failure_exhausts_fallbacks(monkeypatch, tmp_path)
     monkeypatch.setattr(app.httpx,"AsyncClient",Client)
     r=TestClient(app.app).post("/v1/chat/completions",json={"model":"fast","messages":[]})
     assert r.status_code==502
-    with sqlite3.connect(app.DB_PATH) as db: assert db.execute("SELECT fallback_count,success FROM telemetry").fetchone()==(1,0)
+    with sqlite3.connect(app.DB_PATH) as db: assert db.execute("SELECT fallback_count,success FROM telemetry").fetchone()==(2,0)
 
 def test_streaming_no_fallback_returns_non_200(monkeypatch, tmp_path):
     monkeypatch.setattr(app, "DB_PATH", tmp_path / "telemetry.db"); app.init_db(); monkeypatch.setenv("OPENROUTER_KEY", "test-key")
@@ -580,12 +581,13 @@ def test_streaming_cancellation_closes_resources(monkeypatch, tmp_path):
     assert state["closed"]
 
 
-def test_deep_primary_read_timeout_falls_back_to_qwen(monkeypatch, tmp_path):
+def test_deep_primary_read_timeout_falls_back_to_next_in_chain(monkeypatch, tmp_path):
     monkeypatch.setattr(app, "DB_PATH", tmp_path / "telemetry.db"); app.init_db(); monkeypatch.setenv("OPENROUTER_KEY", "test-key")
+    monkeypatch.setattr(app, "load_config", lambda: fixed_chain_config("deep", "p1", ["p2", "p3"]))
     calls = []
     class Response:
         status_code = 200; headers = {"content-type": "application/json"}
-        def json(self): return {"model": "qwen/qwen3.8-max-0902", "choices": [], "usage": {"prompt_tokens": 1, "completion_tokens": 1}}
+        def json(self): return {"model": "p2", "choices": [], "usage": {"prompt_tokens": 1, "completion_tokens": 1}}
     class Client:
         def __init__(self, **kwargs): pass
         async def __aenter__(self): return self
@@ -596,16 +598,17 @@ def test_deep_primary_read_timeout_falls_back_to_qwen(monkeypatch, tmp_path):
             return Response()
     monkeypatch.setattr(app.httpx, "AsyncClient", Client)
     r = TestClient(app.app).post("/v1/chat/completions", json={"model": "deep", "messages": []})
-    assert r.status_code == 200 and calls == ["minimax/minimax-m3", "qwen/qwen3.8-max-0902"]
-    with sqlite3.connect(app.DB_PATH) as db: assert db.execute("SELECT actual_model, fallback_count FROM telemetry").fetchone() == ("qwen/qwen3.8-max-0902", 1)
+    assert r.status_code == 200 and calls == ["p1", "p2"]
+    with sqlite3.connect(app.DB_PATH) as db: assert db.execute("SELECT actual_model, fallback_count FROM telemetry").fetchone() == ("p2", 1)
 
 
-def test_deep_primary_timeout_and_qwen_503_falls_back_to_deepseek(monkeypatch, tmp_path):
+def test_deep_primary_timeout_and_503_falls_back_to_third_in_chain(monkeypatch, tmp_path):
     monkeypatch.setattr(app, "DB_PATH", tmp_path / "telemetry.db"); app.init_db(); monkeypatch.setenv("OPENROUTER_KEY", "test-key")
+    monkeypatch.setattr(app, "load_config", lambda: fixed_chain_config("deep", "p1", ["p2", "p3"]))
     calls = []
     class Response:
         def __init__(self, status): self.status_code = status; self.headers = {"content-type": "application/json"}
-        def json(self): return {"model": "deepseek/deepseek-v4-flash", "choices": [], "usage": {"prompt_tokens": 1, "completion_tokens": 1}}
+        def json(self): return {"model": "p3", "choices": [], "usage": {"prompt_tokens": 1, "completion_tokens": 1}}
     class Client:
         def __init__(self, **kwargs): pass
         async def __aenter__(self): return self
@@ -616,12 +619,13 @@ def test_deep_primary_timeout_and_qwen_503_falls_back_to_deepseek(monkeypatch, t
             return Response(503 if len(calls) == 2 else 200)
     monkeypatch.setattr(app.httpx, "AsyncClient", Client)
     r = TestClient(app.app).post("/v1/chat/completions", json={"model": "deep", "messages": []})
-    assert r.status_code == 200 and calls == ["minimax/minimax-m3", "qwen/qwen3.8-max-0902", "deepseek/deepseek-v4-flash"]
-    with sqlite3.connect(app.DB_PATH) as db: assert db.execute("SELECT actual_model, fallback_count FROM telemetry").fetchone() == ("deepseek/deepseek-v4-flash", 2)
+    assert r.status_code == 200 and calls == ["p1", "p2", "p3"]
+    with sqlite3.connect(app.DB_PATH) as db: assert db.execute("SELECT actual_model, fallback_count FROM telemetry").fetchone() == ("p3", 2)
 
 
 def test_deep_400_does_not_fallback(monkeypatch, tmp_path):
     monkeypatch.setattr(app, "DB_PATH", tmp_path / "telemetry.db"); app.init_db(); monkeypatch.setenv("OPENROUTER_KEY", "test-key")
+    monkeypatch.setattr(app, "load_config", lambda: fixed_chain_config("deep", "p1", ["p2", "p3"]))
     calls = []
     class Response:
         status_code = 400; headers = {"content-type": "application/json"}
@@ -633,12 +637,13 @@ def test_deep_400_does_not_fallback(monkeypatch, tmp_path):
         async def post(self, url, headers, json): calls.append(json["model"]); return Response()
     monkeypatch.setattr(app.httpx, "AsyncClient", Client)
     r = TestClient(app.app).post("/v1/chat/completions", json={"model": "deep", "messages": []})
-    assert r.status_code == 400 and calls == ["minimax/minimax-m3"]
+    assert r.status_code == 400 and calls == ["p1"]
     with sqlite3.connect(app.DB_PATH) as db: assert db.execute("SELECT fallback_count FROM telemetry").fetchone() == (0,)
 
 
 def test_deep_streaming_pre_byte_fallback_and_post_byte_protection(monkeypatch, tmp_path):
     monkeypatch.setattr(app, "DB_PATH", tmp_path / "telemetry.db"); app.init_db(); monkeypatch.setenv("OPENROUTER_KEY", "test-key")
+    monkeypatch.setattr(app, "load_config", lambda: fixed_chain_config("deep", "p1", ["p2", "p3"]))
     calls = []; phase = "pre"
     class Response:
         status_code = 200; headers = {"content-type": "text/event-stream"}
@@ -658,12 +663,12 @@ def test_deep_streaming_pre_byte_fallback_and_post_byte_protection(monkeypatch, 
             return Response(fail=phase == "pre" and len(calls) == 1)
     monkeypatch.setattr(app.httpx, "AsyncClient", Client)
     r = TestClient(app.app).post("/v1/chat/completions", json={"model": "deep", "stream": True, "messages": []})
-    assert r.status_code == 200 and calls == ["minimax/minimax-m3", "qwen/qwen3.8-max-0902"]
+    assert r.status_code == 200 and calls == ["p1", "p2"]
     with sqlite3.connect(app.DB_PATH) as db: assert db.execute("SELECT fallback_count FROM telemetry").fetchone() == (1,)
 
     calls.clear(); phase = "post"; monkeypatch.setattr(app, "DB_PATH", tmp_path / "telemetry2.db"); app.init_db()
     r = TestClient(app.app).post("/v1/chat/completions", json={"model": "deep", "stream": True, "messages": []})
-    assert r.status_code == 200 and calls == ["minimax/minimax-m3"]
+    assert r.status_code == 200 and calls == ["p1"]
     with sqlite3.connect(app.DB_PATH) as db: assert db.execute("SELECT fallback_count FROM telemetry").fetchone() == (0,)
 
 
@@ -884,3 +889,163 @@ def test_routing_report_uses_recent_window_and_never_prints_content(monkeypatch,
     telemetry_report.print_routing_report(1)
     output = capsys.readouterr().out
     assert "prompt" not in output.lower() and "response" not in output.lower()
+
+
+def fixed_chain_config(tier="deep", primary="p1", fallbacks=("p2", "p3"), policy=None):
+    """A deterministic tier chain, so fallback-ordering tests assert behaviour instead of pinning
+    the shipped model list - swapping models in router_config.json must not break them."""
+    entry = {"provider": "openrouter", "primary": primary, "fallbacks": list(fallbacks)}
+    if policy is not None:
+        entry["provider_policy"] = policy
+    others = {name: {"provider": "openrouter", "primary": f"{name}-p", "fallbacks": []}
+              for name in ("fast", "balanced", "deep", "jev") if name != tier}
+    return {"tiers": {tier: entry, **others},
+            "openrouter": {"base_url": "https://openrouter.ai/api/v1", "api_key_env": "OPENROUTER_KEY"}}
+
+
+def capture_upstream_bodies(monkeypatch, tmp_path, config=None):
+    """Route requests through a stubbed upstream and return every body it was sent."""
+    monkeypatch.setattr(app, "DB_PATH", tmp_path / "telemetry.db"); app.init_db()
+    monkeypatch.setenv("OPENROUTER_KEY", "test-key")
+    if config is not None:
+        monkeypatch.setattr(app, "load_config", lambda: config)
+    bodies = []
+    class Response:
+        status_code = 200
+        def json(self): return {"choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}], "usage": {}}
+    class Client:
+        def __init__(self, **kwargs): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *args): pass
+        async def post(self, url, headers, json): bodies.append(json); return Response()
+    monkeypatch.setattr(app.httpx, "AsyncClient", Client)
+    return bodies, TestClient(app.app)
+
+
+def test_tier_provider_policy_is_sent_upstream(monkeypatch, tmp_path):
+    """A tier's governance floor must reach OpenRouter, or the config is inert."""
+    config = {"tiers": {"fast": {"provider": "openrouter", "primary": "m1", "fallbacks": ["m2"],
+                                 "provider_policy": {"zdr": True}}},
+              "openrouter": {"base_url": "https://x/api/v1", "api_key_env": "OPENROUTER_KEY"}}
+    bodies, client = capture_upstream_bodies(monkeypatch, tmp_path, config)
+    assert client.post("/v1/chat/completions", json={"model": "fast", "messages": []}).status_code == 200
+    assert bodies[0]["provider"] == {"zdr": True}
+
+
+def test_tier_provider_policy_survives_every_fallback_attempt(monkeypatch, tmp_path):
+    """The floor applies per attempt, not just to the first model tried."""
+    config = {"tiers": {"fast": {"provider": "openrouter", "primary": "m1", "fallbacks": ["m2"],
+                                 "provider_policy": {"zdr": True}}},
+              "openrouter": {"base_url": "https://x/api/v1", "api_key_env": "OPENROUTER_KEY"}}
+    bodies, client = capture_upstream_bodies(monkeypatch, tmp_path, config)
+    class Reject:
+        status_code = 404
+        headers = {"content-type": "application/json"}
+        def json(self): return {"error": {"message": "gone"}}
+    seen = []
+    class Client2:
+        def __init__(self, **kwargs): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *args): pass
+        async def post(self, url, headers, json):
+            bodies.append(json); seen.append(json["model"])
+            return Reject() if len(seen) == 1 else type("R", (), {"status_code": 200, "json": lambda s: {"choices": [], "usage": {}}})()
+    monkeypatch.setattr(app.httpx, "AsyncClient", Client2)
+    assert client.post("/v1/chat/completions", json={"model": "fast", "messages": []}).status_code == 200
+    assert seen == ["m1", "m2"]
+    assert all(b["provider"] == {"zdr": True} for b in bodies)
+
+
+def test_provider_policy_keeps_client_routing_hints_but_wins_on_its_own_keys(monkeypatch, tmp_path):
+    config = {"tiers": {"balanced": {"provider": "openrouter", "primary": "m1", "fallbacks": [],
+                                     "provider_policy": {"zdr": True}}},
+              "openrouter": {"base_url": "https://x/api/v1", "api_key_env": "OPENROUTER_KEY"}}
+    bodies, client = capture_upstream_bodies(monkeypatch, tmp_path, config)
+    client.post("/v1/chat/completions", json={"model": "balanced", "messages": [],
+                                             "provider": {"sort": "price", "zdr": False}})
+    assert bodies[0]["provider"] == {"sort": "price", "zdr": True}
+
+
+def test_non_dict_client_provider_is_replaced_not_merged(monkeypatch, tmp_path):
+    config = {"tiers": {"fast": {"provider": "openrouter", "primary": "m1", "fallbacks": [],
+                                 "provider_policy": {"zdr": True}}},
+              "openrouter": {"base_url": "https://x/api/v1", "api_key_env": "OPENROUTER_KEY"}}
+    bodies, client = capture_upstream_bodies(monkeypatch, tmp_path, config)
+    client.post("/v1/chat/completions", json={"model": "fast", "messages": [], "provider": "bogus"})
+    assert bodies[0]["provider"] == {"zdr": True}
+
+
+def test_shipped_config_enforces_a_governance_floor_on_every_traffic_tier():
+    """Guards the cost/privacy decision: volume tiers stay zero-retention and never primary an
+    expensive *-max model, and only the rare deep checker relaxes to no-training-only."""
+    tiers = app.load_config()["tiers"]
+    traffic = {name: tiers[name] for name in ("fast", "balanced", "deep") if name in tiers}
+    assert traffic, "traffic tiers missing"
+    for name, tier in traffic.items():
+        assert isinstance(tier.get("provider_policy"), dict) and tier["provider_policy"], f"{name} has no policy"
+    assert tiers["fast"]["provider_policy"].get("zdr") is True
+    assert tiers["balanced"]["provider_policy"].get("zdr") is True
+    assert tiers["deep"]["provider_policy"] == {"data_collection": "deny"}
+    expensive = [m for name in ("fast", "balanced")
+                 for m in [tiers[name]["primary"], *tiers[name].get("fallbacks", [])] if "max" in m]
+    assert expensive == [], f"high-price model in a volume tier: {expensive}"
+
+
+def test_provider_policy_applies_to_the_streaming_path(monkeypatch, tmp_path):
+    """Streaming builds its request before branching, so the floor must be present there too."""
+    config = {"tiers": {"fast": {"provider": "openrouter", "primary": "m1", "fallbacks": [],
+                                 "provider_policy": {"zdr": True}}},
+              "openrouter": {"base_url": "https://x/api/v1", "api_key_env": "OPENROUTER_KEY"}}
+    monkeypatch.setattr(app, "DB_PATH", tmp_path / "telemetry.db"); app.init_db()
+    monkeypatch.setenv("OPENROUTER_KEY", "test-key")
+    monkeypatch.setattr(app, "load_config", lambda: config)
+    seen = {}
+    class Response:
+        status_code = 200; headers = {"content-type": "text/event-stream"}
+        async def __aenter__(self): return self
+        async def __aexit__(self, *args): pass
+        async def aiter_bytes(self): yield b"data: [DONE]\n\n"
+        async def aread(self): return b""
+    class Client:
+        def __init__(self, **kwargs): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *args): pass
+        def stream(self, method, url, headers, json):
+            seen.update(json)
+            return Response()
+    monkeypatch.setattr(app.httpx, "AsyncClient", Client)
+    r = TestClient(app.app).post("/v1/chat/completions", json={"model": "fast", "stream": True, "messages": []})
+    assert r.status_code == 200
+    assert seen["provider"] == {"zdr": True}
+
+
+def recorded_agent(db_path):
+    """The most recently recorded caller, so one test can post several requests to one DB."""
+    with sqlite3.connect(db_path) as db:
+        return db.execute("SELECT agent FROM telemetry ORDER BY id DESC LIMIT 1").fetchone()[0]
+
+
+def test_bare_tier_with_no_header_is_attributed_to_openhuman(monkeypatch, tmp_path):
+    """OpenHuman sends `model: "balanced"` and no identifying header, which previously landed as
+    one unattributed blob holding 41% of spend."""
+    bodies, client = capture_upstream_bodies(monkeypatch, tmp_path)
+    client.post("/v1/chat/completions", json={"model": "balanced", "messages": []})
+    assert recorded_agent(tmp_path / "telemetry.db") == "openhuman"
+
+
+def test_inferred_openhuman_label_never_overrides_an_explicit_header(monkeypatch, tmp_path):
+    """The inference is the weakest signal: a caller that identifies itself keeps its own label
+    even when it sends the same bare-tier shape OpenHuman uses."""
+    bodies, client = capture_upstream_bodies(monkeypatch, tmp_path)
+    client.post("/v1/chat/completions", json={"model": "fast", "messages": []},
+                headers={"X-OpenClaw-Agent": "personlab"})
+    assert recorded_agent(tmp_path / "telemetry.db") == "personlab"
+
+
+def test_tag_and_prefix_attribution_still_win_over_the_inference(monkeypatch, tmp_path):
+    bodies, client = capture_upstream_bodies(monkeypatch, tmp_path)
+    client.post("/v1/chat/completions", json={"model": "balanced#coordinator", "messages": []})
+    assert recorded_agent(tmp_path / "telemetry.db") == "coordinator"
+    bodies, client = capture_upstream_bodies(monkeypatch, tmp_path)
+    client.post("/v1/chat/completions", json={"model": "router-local/balanced", "messages": []})
+    assert recorded_agent(tmp_path / "telemetry.db") == "router-local"

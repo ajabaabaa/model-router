@@ -1,9 +1,28 @@
 {
   "tiers": {
-    "fast": {"provider": "openrouter", "primary": "qwen/qwen3.8-flash", "fallbacks": ["~z-ai/glm-flash-latest"]},
-    "balanced": {"provider": "openrouter", "primary": "qwen/qwen3.8-max-0902", "fallbacks": ["deepseek/deepseek-v4-flash", "minimax/minimax-m1"]},
-    "deep": {"provider": "openrouter", "primary": "minimax/minimax-m3", "fallbacks": ["qwen/qwen3.8-max-0902", "deepseek/deepseek-v4-flash"]},
-    "jev": {"provider": "openrouter", "primary": "typesafe/jev-router", "fallbacks": []}
+    "fast": {
+      "provider": "openrouter",
+      "primary": "qwen/qwen3.8-27b:free",
+      "fallbacks": ["inclusionai/ling-3.1-flash", "deepseek/deepseek-v4.1-flash"],
+      "provider_policy": {"zdr": true}
+    },
+    "balanced": {
+      "provider": "openrouter",
+      "primary": "deepseek/deepseek-v4.1-flash",
+      "fallbacks": ["deepseek/deepseek-v4-flash", "~z-ai/glm-flash-latest"],
+      "provider_policy": {"zdr": true}
+    },
+    "deep": {
+      "provider": "openrouter",
+      "primary": "qwen/qwen3.7-max",
+      "fallbacks": ["minimax/minimax-m3"],
+      "provider_policy": {"data_collection": "deny"}
+    },
+    "jev": {
+      "provider": "openrouter",
+      "primary": "typesafe/jev-router",
+      "fallbacks": []
+    }
   },
   "openrouter": {"base_url": "https://openrouter.ai/api/v1", "api_key_env": "OPENROUTER_KEY", "timeout_seconds": 120}
 }
