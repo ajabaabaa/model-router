@@ -43,6 +43,18 @@
   .sw{width:22px;height:0;border-top-width:3px;border-top-style:solid;display:inline-block}
   #detail{margin-top:12px;font-size:12.5px;color:var(--muted);min-height:20px}
   #detail b{color:var(--ink)}
+  .drawer{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:4px}
+  .drawer h3{margin:0 0 6px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink)}
+  .drawer table{width:100%;border-collapse:collapse;font-size:12px;font-variant-numeric:tabular-nums}
+  .drawer th{text-align:left;font-weight:600;color:var(--muted);border-bottom:1px solid var(--line);padding:3px 6px}
+  .drawer td{border-bottom:1px solid var(--band);padding:3px 6px;color:var(--ink)}
+  .drawer td.num{text-align:right}
+  .kv{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 10px}
+  .kv span{background:var(--band);border:1px solid var(--line);border-radius:6px;padding:2px 8px;font-size:11.5px}
+  .gate{font-size:10px;font-weight:700;letter-spacing:.02em}
+  .flag{color:var(--failing);font-weight:600}
+  .strip{margin-top:12px;border:1px solid var(--line);border-left:3px solid var(--healthy);
+         background:var(--surface);border-radius:8px;padding:7px 11px;font-size:11.5px;color:var(--muted)}
   footer{margin-top:14px;font-size:11.5px;color:var(--muted)}
   .err{background:#fef2f2;border:1px solid #fecaca;color:#991b1b;padding:10px 12px;border-radius:8px}
 </style>
@@ -75,6 +87,7 @@
     <span>Column position encodes the node type; colour encodes state only.</span>
   </div>
   <div id="detail">Click a node to isolate its links.</div>
+  <div class="strip" id="govstrip"></div>
   <footer>
     Operational telemetry only — request counts, tokens, cost, latency and model identity.
     No prompt or message content is read or transmitted by this view.
@@ -132,12 +145,17 @@ function path(a, b, bend) {
   return `M${x1},${y1} C${x1 + dx},${y1} ${x2 - dx},${y2} ${x2},${y2}`;
 }
 
+function gateText(n) {
+  const p = n.meta && n.meta.provider_policy;
+  if (!p || !Object.keys(p).length) return "no gate";
+  if (p.zdr) return "zdr";
+  return Object.keys(p).map((k) => k + "=" + p[k]).join(",");
+}
+
 function nodeLabel(n) {
   const bits = [];
   if (n.kind === "agent") bits.push(`${fmtNum(n.requests)} req · ${fmtMoney(n.cost)}`);
   else if (n.kind === "tier") {
-    const p = n.meta.provider_policy;
-    bits.push(p ? (p.zdr ? "zdr" : Object.keys(p).map((k) => k + "=" + p[k]).join(",")) : "no gate");
     if (n.meta.min_max_tokens) bits.push("floor " + n.meta.min_max_tokens);
     bits.push(`${fmtNum(n.requests)} req`);
   } else if (n.kind === "model") bits.push(`${fmtNum(n.requests)} req · ${fmtMoney(n.cost)}`);
@@ -160,7 +178,7 @@ function render() {
   }
   let out = "";
   for (const c of COLS) {
-    out += `<text class="colhead" x="${X[c.kind]}" y="26">${c.title}</text>`;
+    out += `<text class="colhead" x="${X[c.kind]}" y="26">${c.title} · ${byKind[c.kind].length}</text>`;
   }
   for (const e of data.edges) {
     const a = byKind[e.from.split(":")[0]]?.find((n) => n.id === e.from);
@@ -182,15 +200,29 @@ function render() {
   for (const c of COLS) {
     for (const n of byKind[c.kind]) {
       const dim = selected && !linked.has(n.id) && n.id !== selected;
-      const accent = n.kind === "tier" && n.meta.off_config ? "var(--failing)"
-                   : n.kind === "model" && n.meta.off_chain ? "var(--fallback)"
-                   : n.requests === 0 ? "var(--idle)" : "var(--caller)";
+      // Border colour is reserved for state; an ordinary node is neutral, so a red or amber
+      // outline always means "this is not what the config says", never "this is a tier".
+      const ungoverned = n.kind === "tier" && !n.meta.provider_policy;
+      const accent = n.meta.off_config || n.meta.off_chain ? "var(--failing)"
+                   : ungoverned ? "var(--fallback)"
+                   : n.requests === 0 ? "var(--idle)" : "var(--line)";
+      let badge = "";
+      if (n.kind === "tier") {
+        const g = gateText(n);
+        const w = 10 + g.length * 5.8;
+        const col = g === "no gate" ? "var(--failing)" : g.startsWith("zdr") ? "var(--healthy)" : "var(--fallback)";
+        badge = `<rect x="${n.x + n.w - w - 6}" y="${n.y + 6}" width="${w}" height="14" rx="7"
+                   fill="none" stroke="${col}" stroke-width="1"/>
+                 <text class="gate" x="${n.x + n.w - w / 2 - 6}" y="${n.y + 16}"
+                   text-anchor="middle" fill="${col}">${escapeHtml(g)}</text>`;
+      }
       out += `<g class="node${dim ? " dim" : ""}" data-id="${n.id}" tabindex="0">
         <rect x="${n.x}" y="${n.y}" width="${n.w}" height="34" fill="#fff"
-              stroke="${accent}" stroke-width="${n.id === selected ? 2.5 : 1.4}"
+              stroke="${accent}" stroke-width="${n.id === selected ? 2.5 : 1.3}"
               stroke-dasharray="${n.requests === 0 ? "3 3" : ""}"/>
         <text class="name" x="${n.x + 9}" y="${n.y + 15}">${escapeHtml(n.label)}</text>
         <text class="stat" x="${n.x + 9}" y="${n.y + 28}">${escapeHtml(nodeLabel(n))}</text>
+        ${badge}
       </g>`;
     }
   }
@@ -203,19 +235,47 @@ function render() {
   $("detail").innerHTML = sel ? describe(sel) : "Click a node to isolate its links.";
 }
 
+function peerOf(edge, fromMe) {
+  const id = fromMe ? edge.to : edge.from;
+  return id.split(":").slice(1).join(":");
+}
+
+function linkTable(edges, fromMe, heading, empty) {
+  if (!edges.length) return `<div><h3>${heading}</h3><div class="kv"><span>${empty}</span></div></div>`;
+  const rows = edges.map((e) => {
+    const st = stateOf(e);
+    return `<tr><td>${GLYPH[st]} ${escapeHtml(peerOf(e, fromMe))}</td>` +
+      `<td class="num">${e.requests}</td>` +
+      `<td class="num">${fmtMoney(e.cost)}</td>` +
+      `<td class="num">${e.p50_latency_ms ? Math.round(e.p50_latency_ms).toLocaleString() + " ms" : "–"}</td>` +
+      `<td class="num${e.failures ? " flag" : ""}">${e.failures || "–"}</td></tr>`;
+  }).join("");
+  return `<div><h3>${heading}</h3><table>
+    <tr><th>peer</th><th class="num">reqs</th><th class="num">cost</th><th class="num">p50</th><th class="num">err</th></tr>
+    ${rows}</table></div>`;
+}
+
 function describe(n) {
   const outs = data.edges.filter((e) => e.from === n.id);
   const ins = data.edges.filter((e) => e.to === n.id);
-  const line = (e, dir) => `${dir === "out" ? "→" : "←"} ${escapeHtml(e.to.split(":").slice(1).join(":") ||
-      e.from.split(":").slice(1).join(":"))}: ${e.requests} req, ${fmtMoney(e.cost)}` +
-    `${e.p50_latency_ms ? ", p50 " + Math.round(e.p50_latency_ms) + " ms" : ""}` +
-    `${e.failures ? ", ✕ " + e.failures + " failed" : ""}${e.truncated ? ", ⚠ " + e.truncated + " truncated" : ""}`;
-  return `<b>${escapeHtml(n.label)}</b> — ${n.kind}, ${n.requests} requests, ${fmtMoney(n.cost)}, ` +
-    `${fmtNum(n.input_tokens)} in / ${fmtNum(n.output_tokens)} out` +
-    (n.meta.provider_policy ? ` · gate ${JSON.stringify(n.meta.provider_policy)}` : "") +
-    (n.meta.off_config ? " · <b>tier not in router_config.json</b>" : "") +
-    (n.meta.off_chain ? " · <b>served outside its declared chain</b>" : "") +
-    `<br>` + [...outs.map((e) => line(e, "out")), ...ins.map((e) => line(e, "in"))].slice(0, 14).join("<br>");
+  const chips = [
+    `${n.kind}`,
+    `${n.requests.toLocaleString()} requests`,
+    fmtMoney(n.cost),
+    `${fmtNum(n.input_tokens)} in`,
+    `${fmtNum(n.output_tokens)} out`,
+    n.failures ? `${n.failures} failed` : null,
+    n.meta.provider_policy ? `gate ${JSON.stringify(n.meta.provider_policy)}` : "no gate",
+    n.meta.min_max_tokens ? `floor ${n.meta.min_max_tokens}` : null,
+    n.meta.off_config ? "TIER NOT IN CONFIG" : null,
+    n.meta.off_chain ? "SERVED OFF CHAIN" : null,
+    n.last_seen ? `last seen ${n.last_seen}` : null,
+  ].filter(Boolean);
+  return `<div class="kv">${chips.map((c) => `<span>${escapeHtml(c)}</span>`).join("")}</div>
+    <div class="drawer">
+      ${linkTable(ins, false, "Inbound", "nothing routes into this node")}
+      ${linkTable(outs, true, "Outbound", "this node has no onward links")}
+    </div>`;
 }
 
 function chips() {
@@ -230,6 +290,13 @@ function chips() {
   if (s.off_chain_models.length) items.push([`served off declared chain: ${s.off_chain_models.join(", ")}`, true]);
   $("chips").innerHTML = items.map(([t, bad]) =>
     `<span class="chip${bad ? " alert" : ""}">${escapeHtml(t)}</span>`).join("");
+
+  const tiers = data.nodes.filter((n) => n.kind === "tier" && !n.meta.off_config);
+  const governed = tiers.filter((n) => n.meta.provider_policy);
+  const strip = $("govstrip");
+  strip.textContent = `${governed.length}/${tiers.length} configured tiers enforce a data-governance gate` +
+    (s.ungoverned_tiers.length ? ` — without one: ${s.ungoverned_tiers.join(", ")}` : " — every traffic tier is gated");
+  strip.style.borderLeftColor = governed.length === tiers.length ? "var(--healthy)" : "var(--fallback)";
 }
 
 function escapeHtml(s) {
