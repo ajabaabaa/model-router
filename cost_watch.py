@@ -7,6 +7,7 @@ Exit 0 = OK, 1 = at least one ALERT line emitted (so a scheduler can key off it)
 import json
 import sqlite3
 import sys
+import urllib.request
 
 HOURS = float(sys.argv[1]) if len(sys.argv) > 1 else 1.0
 DB = "router_telemetry.db"
@@ -22,6 +23,18 @@ for tier in cfg["tiers"].values():
 
 alerts = []
 conn = sqlite3.connect(f"file:{DB}?mode=ro", uri=True)
+
+# OpenHuman and OpenClaw have no usable failover if this process dies - their fallback chains
+# resolve to other tiers on this same server, and OpenHuman's reliability.model_fallbacks is
+# dead config in 0.64.10. Liveness is therefore part of the cost watch, not a separate concern.
+for probe, label in (("http://127.0.0.1:6060/health", "/health"),
+                     ("http://127.0.0.1:6060/v1/models", "/v1/models")):
+    try:
+        with urllib.request.urlopen(probe, timeout=15) as resp:
+            if resp.status != 200:
+                alerts.append(f"router {label} returned HTTP {resp.status}")
+    except Exception as exc:
+        alerts.append(f"router {label} unreachable: {type(exc).__name__} - agents have no failover")
 # Requests that carry neither a tag nor a prefix are attributed to "openhuman" by the router, so
 # any ad-hoc script that posts a bare tier name lands in that bucket too. Benchmark traffic is
 # long-form generation and dwarfs real agent turns - projecting from it read $156/wk on an hour
