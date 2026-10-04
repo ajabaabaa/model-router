@@ -64,7 +64,7 @@ async def run_one(client, tier, number, prompt):
     payload = {"model": tier, "messages": [{"role": "user", "content": request_prompt}], "stream": False, "max_tokens": 2048}
     payload["reasoning"] = {"effort": "none" if tier == "fast" else "minimal"}
     try:
-        response = await client.post(URL, json=payload, headers={"Content-Type": "application/json", "X-Router-Total-Budget-Ms": str(TOTAL_BUDGET_MS), "X-Router-Benchmark-Attempt-Budgets-Ms": ",".join(map(str, budgets)), "X-Request-ID": request_id})
+        response = await client.post(URL, json=payload, headers={"Content-Type": "application/json", "X-OpenClaw-Agent": "benchmark", "X-Router-Total-Budget-Ms": str(TOTAL_BUDGET_MS), "X-Router-Benchmark-Attempt-Budgets-Ms": ",".join(map(str, budgets)), "X-Request-ID": request_id})
         result["http_status"] = response.status_code
         body = response.json()
         result["actual_model"] = body.get("model")

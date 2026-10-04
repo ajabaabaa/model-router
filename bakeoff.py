@@ -48,7 +48,8 @@ async def one(client, tier, model, number, prompt):
            "chars": 0, "out_tok": 0, "cost": 0.0, "finish": None, "latency_s": None, "exc": None}
     started = time.perf_counter()
     try:
-        r = await client.post(URL, json=payload, headers={"Content-Type": "application/json"})
+        r = await client.post(URL, json=payload, headers={"Content-Type": "application/json",
+                                                          "X-OpenClaw-Agent": "benchmark"})
         b = r.json()
         ch = (b.get("choices") or [{}])[0]
         msg = ch.get("message") or {}

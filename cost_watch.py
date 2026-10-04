@@ -22,6 +22,18 @@ for tier in cfg["tiers"].values():
 
 alerts = []
 conn = sqlite3.connect(f"file:{DB}?mode=ro", uri=True)
+# Requests that carry neither a tag nor a prefix are attributed to "openhuman" by the router, so
+# any ad-hoc script that posts a bare tier name lands in that bucket too. Benchmark traffic is
+# long-form generation and dwarfs real agent turns - projecting from it read $156/wk on an hour
+# where the agents spent pennies. Keep it out of the run-rate and say so.
+SYNTHETIC = ("benchmark", "verify", "verify2", "bakeoff", "cand", "smoketest", "router-test", "ab-")
+# Traffic on a tier that no longer exists in the config is by definition not production - this
+# catches bake-off rows written before the benchmark tag existed, whose agent column is polluted
+# with the inferred "openhuman" label and so cannot be filtered by name.
+_declared = ", ".join("'" + t + "'" for t in cfg["tiers"]) or "''"
+SYN_FILTER = " and ".join(["coalesce(agent,'') NOT LIKE ?"] * len(SYNTHETIC)
+                          + [f"selected_tier IN ({_declared})"])
+SYN_ARGS = tuple(f"%{s}%" for s in SYNTHETIC)
 # Telemetry stores "YYYY-MM-DDTHH:MM:SSZ" but datetime('now') yields "YYYY-MM-DD HH:MM:SS".
 # Comparing those as strings makes every bound match (0x54 'T' > 0x20 ' '), silently widening
 # "last 1 hour" to "all of today". Build the bound in the stored format instead.
@@ -30,9 +42,14 @@ W = f"timestamp >= {BOUND}"
 args = (f"-{HOURS:g} hours",)
 
 
-def window(modifier):
-    return conn.execute(f"select count(*), sum(estimated_cost) from telemetry where timestamp >= "
-                        f"strftime('%Y-%m-%dT%H:%M:%SZ','now',?)", (modifier,)).fetchone()
+def window(modifier, real_only=False):
+    sql = (f"select count(*), sum(estimated_cost) from telemetry where timestamp >= "
+           f"strftime('%Y-%m-%dT%H:%M:%SZ','now',?)")
+    args = [modifier]
+    if real_only:
+        sql += f" and {SYN_FILTER}"
+        args.extend(SYN_ARGS)
+    return conn.execute(sql, tuple(args)).fetchone()
 
 row = conn.execute(
     f"select count(*) c, sum(estimated_cost) cost, sum(input_tokens) tin, sum(output_tokens) tout, "
@@ -53,17 +70,26 @@ if tin:
     # was 983 in vs 19,890 out), so that ratio reads like a frontier model price and means nothing.
     print(f"per request   ${cost / reqs:.5f}" if reqs else "")
 if reqs:
-    week_actual = window("-7 days")[1] or 0.0
-    # Project from the freshest 20 minutes, not the whole window: right after a routing change
-    # the window is full of old-rate rows and the naive projection reads ~10x too high.
-    short_n, short_cost = window("-20 minutes")
+    week_actual = window("-7 days", real_only=True)[1] or 0.0
+    # Project from the freshest 20 minutes of *agent* traffic only. A benchmark run inside the
+    # window is long-form generation and inflates the rate by an order of magnitude.
+    short_n, short_cost = window("-20 minutes", real_only=True)
     short_cost = short_cost or 0.0
     if short_n:
         print(
-            f"run-rate      ${short_cost / short_n:.5f}/req over last {short_n} reqs -> "
+            f"run-rate      ${short_cost / short_n:.5f}/req over {short_n} agent reqs (20m) -> "
             f"projected ${short_cost * 3 * 24 * 7:.2f}/week at this pace"
         )
-    print(f"window        ${cost:.4f} spend / {reqs} reqs; last 7 days actual ${week_actual:.2f}")
+    else:
+        print("run-rate      no agent traffic in the last 20 min (benchmark rows excluded)")
+    syn_n, syn_cost = conn.execute(
+        f"select count(*), sum(estimated_cost) from telemetry where {W} and not ({SYN_FILTER})",
+        (args[0],) + SYN_ARGS,
+    ).fetchone()
+    if syn_n:
+        print(f"synthetic     {syn_n} benchmark/probe reqs = ${syn_cost or 0:.4f} "
+              f"({100.0 * (syn_cost or 0) / (cost or 1):.0f}% of window spend, excluded from run-rate)")
+    print(f"window        ${cost:.4f} spend / {reqs} reqs; last 7 days agent spend ${week_actual:.2f}")
 print(f"failures      {fails:>7}    fallback used {fbs:>6}"
       f"{f'  ({100.0 * fbs / reqs:.1f}% of requests)' if reqs else ''}")
 
