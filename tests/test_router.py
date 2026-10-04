@@ -986,9 +986,43 @@ def test_shipped_config_enforces_a_governance_floor_on_every_traffic_tier():
     assert tiers["fast"]["provider_policy"].get("zdr") is True
     assert tiers["balanced"]["provider_policy"].get("zdr") is True
     assert tiers["deep"]["provider_policy"] == {"data_collection": "deny"}
+    # Explicit ids, not a "max" substring: that matched minimax/minimax-m3, a cheap route.
+    frontier = {"qwen/qwen3.8-max-0902", "qwen/qwen3.7-max", "anthropic/claude-opus-5.5",
+                "anthropic/claude-sonnet-4-6", "openai/gpt-5.2"}
     expensive = [m for name in ("fast", "balanced")
-                 for m in [tiers[name]["primary"], *tiers[name].get("fallbacks", [])] if "max" in m]
+                 for m in [tiers[name]["primary"], *tiers[name].get("fallbacks", [])] if m in frontier]
     assert expensive == [], f"high-price model in a volume tier: {expensive}"
+
+
+def test_min_max_tokens_floor_raises_a_cap_that_would_yield_empty_content(monkeypatch, tmp_path):
+    """deepseek-v4.1-flash spends the budget on reasoning before emitting visible text: at
+    max_tokens=2048 it returned 200 with empty content on 6 of 15 prompts."""
+    config = fixed_chain_config("balanced", "p1", ["p2"], policy=None)
+    config["tiers"]["balanced"]["min_max_tokens"] = 8192
+    bodies, client = capture_upstream_bodies(monkeypatch, tmp_path, config)
+    client.post("/v1/chat/completions", json={"model": "balanced", "messages": [], "max_tokens": 2048})
+    assert bodies[0]["max_tokens"] == 8192
+
+
+def test_min_max_tokens_floor_never_lowers_a_bigger_request(monkeypatch, tmp_path):
+    config = fixed_chain_config("balanced", "p1", ["p2"], policy=None)
+    config["tiers"]["balanced"]["min_max_tokens"] = 8192
+    bodies, client = capture_upstream_bodies(monkeypatch, tmp_path, config)
+    client.post("/v1/chat/completions", json={"model": "balanced", "messages": [], "max_tokens": 16384})
+    assert bodies[0]["max_tokens"] == 16384
+
+
+def test_min_max_tokens_absent_leaves_the_request_alone(monkeypatch, tmp_path):
+    bodies, client = capture_upstream_bodies(monkeypatch, tmp_path, fixed_chain_config("fast", "p1", ["p2"]))
+    client.post("/v1/chat/completions", json={"model": "fast", "messages": [], "max_tokens": 64})
+    assert bodies[0]["max_tokens"] == 64
+
+
+def test_shipped_config_gives_reasoning_routes_a_budget_floor():
+    tiers = app.load_config()["tiers"]
+    assert tiers["balanced"]["min_max_tokens"] >= 8192
+    assert tiers["deep"]["min_max_tokens"] >= 4096
+    assert "min_max_tokens" not in tiers["fast"], "glm route is not reasoning-bound"
 
 
 def test_provider_policy_applies_to_the_streaming_path(monkeypatch, tmp_path):

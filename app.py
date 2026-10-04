@@ -251,6 +251,14 @@ async def chat_completions(request: Request):
             provider_opts = dict(client_provider) if isinstance(client_provider, dict) else {}
             provider_opts.update(policy)
             upstream_body["provider"] = provider_opts
+        # Reasoning-heavy routes spend the budget before they emit visible text, so a caller that
+        # caps output too low gets a 200 with empty content. Raising the cap only widens what the
+        # model is allowed to write; it never truncates a caller that asked for more.
+        floor = tier_cfg.get("min_max_tokens")
+        if isinstance(floor, int) and floor > 0:
+            requested = upstream_body.get("max_tokens")
+            if not isinstance(requested, int) or requested < floor:
+                upstream_body["max_tokens"] = floor
         headers = {"Authorization":f"Bearer {key}","Content-Type":"application/json","HTTP-Referer":"http://127.0.0.1:6060","X-Title":"openclaw-router"}
         url = cfg["openrouter"].get("base_url","https://openrouter.ai/api/v1").rstrip("/")+"/chat/completions"
         timeout = cfg["openrouter"].get("timeout_seconds", 120)

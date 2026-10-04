@@ -2,21 +2,29 @@
   "tiers": {
     "fast": {
       "provider": "openrouter",
-      "primary": "qwen/qwen3.8-27b:free",
-      "fallbacks": ["inclusionai/ling-3.1-flash", "deepseek/deepseek-v4.1-flash"],
+      "primary": "~z-ai/glm-flash-latest",
+      "fallbacks": ["minimax/minimax-m3", "deepseek/deepseek-v4.1-flash"],
       "provider_policy": {"zdr": true}
     },
     "balanced": {
       "provider": "openrouter",
       "primary": "deepseek/deepseek-v4.1-flash",
       "fallbacks": ["deepseek/deepseek-v4-flash", "~z-ai/glm-flash-latest"],
-      "provider_policy": {"zdr": true}
+      "provider_policy": {"zdr": true},
+      "min_max_tokens": 8192
     },
     "deep": {
       "provider": "openrouter",
       "primary": "qwen/qwen3.7-max",
       "fallbacks": ["minimax/minimax-m3"],
-      "provider_policy": {"data_collection": "deny"}
+      "provider_policy": {"data_collection": "deny"},
+      "min_max_tokens": 4096
+    },
+    "free": {
+      "provider": "openrouter",
+      "primary": "qwen/qwen3.8-27b:free",
+      "fallbacks": ["inclusionai/ling-3.1-flash", "~z-ai/glm-flash-latest"],
+      "provider_policy": {"zdr": true}
     },
     "jev": {
       "provider": "openrouter",
