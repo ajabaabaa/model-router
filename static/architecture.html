@@ -55,6 +55,16 @@
   .flag{color:var(--failing);font-weight:600}
   .strip{margin-top:12px;border:1px solid var(--line);border-left:3px solid var(--healthy);
          background:var(--surface);border-radius:8px;padding:7px 11px;font-size:11.5px;color:var(--muted)}
+  #matrixtable{border-collapse:collapse;font-size:11.5px;font-variant-numeric:tabular-nums}
+  #matrixtable th,#matrixtable td{padding:3px 8px;border-bottom:1px solid var(--band);text-align:right}
+  #matrixtable th{color:var(--muted);font-weight:600}
+  #matrixtable .rowh{text-align:left;font-weight:600;color:var(--ink);white-space:nowrap}
+  #matrixtable td.miss{color:var(--idle)}
+  .traces{margin-top:12px}
+  .traces h3{margin:0 0 4px;font-size:11px;letter-spacing:.06em;text-transform:uppercase}
+  .traces ul{margin:0;padding-left:16px}
+  .traces li{font-size:11.5px;margin-bottom:3px}
+  .traces code{font-family:ui-monospace,"JetBrains Mono",Consolas,monospace;font-size:11px;color:var(--muted)}
   footer{margin-top:14px;font-size:11.5px;color:var(--muted)}
   .err{background:#fef2f2;border:1px solid #fecaca;color:#991b1b;padding:10px 12px;border-radius:8px}
 </style>
@@ -73,6 +83,7 @@
       </select>
     </label>
     <button id="refresh" aria-pressed="true">auto-refresh: on</button>
+    <button id="matrix" aria-pressed="false">latency matrix</button>
     <div class="chips" id="chips"></div>
   </div>
 </header>
@@ -85,6 +96,10 @@
     <span><i class="sw" style="border-color:var(--failing);border-top-width:4px"></i>✕ failures on this link</span>
     <span><i class="sw" style="border-color:var(--idle);border-top-style:dotted"></i>○ declared, no traffic</span>
     <span>Column position encodes the node type; colour encodes state only.</span>
+  </div>
+  <div class="panel" id="matrixpanel" hidden style="margin-bottom:12px;padding:10px 12px">
+    <table id="matrixtable"></table>
+    <div class="sub" id="matrixnote"></div>
   </div>
   <div id="detail">Click a node to isolate its links.</div>
   <div class="strip" id="govstrip"></div>
@@ -271,11 +286,53 @@ function describe(n) {
     n.meta.off_chain ? "SERVED OFF CHAIN" : null,
     n.last_seen ? `last seen ${n.last_seen}` : null,
   ].filter(Boolean);
+  const traces = (n.errors && n.errors.length)
+    ? `<div class="traces"><h3>Recent failures on this node</h3><ul>${n.errors.map((e) => {
+        let detail = "";
+        try {
+          const parsed = JSON.parse(e.outcomes);
+          detail = (Array.isArray(parsed) ? parsed : [parsed])
+            .map((a) => `${a.model || "?"} → ${a.outcome || a.http_status || "?"}`).join("; ");
+        } catch { detail = String(e.outcomes || ""); }
+        return `<li>${escapeHtml(e.timestamp || "?")} · HTTP ${escapeHtml(String(e.http_status ?? "?"))}` +
+          `${detail ? ` · <code>${escapeHtml(detail.slice(0, 170))}</code>` : ""}</li>`;
+      }).join("")}</ul></div>`
+    : "";
   return `<div class="kv">${chips.map((c) => `<span>${escapeHtml(c)}</span>`).join("")}</div>
     <div class="drawer">
       ${linkTable(ins, false, "Inbound", "nothing routes into this node")}
       ${linkTable(outs, true, "Outbound", "this node has no onward links")}
-    </div>`;
+    </div>${traces}`;
+}
+
+function renderMatrix() {
+  const panel = $("matrixpanel");
+  const cells = (data.latency && data.latency.cells) || [];
+  if (!showMatrix || !cells.length) { panel.hidden = true; return; }
+  panel.hidden = false;
+  const {agents, tiers} = data.latency;
+  const byPair = {};
+  cells.forEach((c) => { byPair[c.agent + "|" + c.tier] = c; });
+  const max = Math.max(...cells.map((c) => c.p50_ms));
+  // Sequential ramp: latency is ordered magnitude, and the number is always printed, so the
+  // shading is reinforcement rather than the only encoding.
+  const RAMP = ["#eff6ff", "#bfdbfe", "#60a5fa", "#2563eb", "#1e3a8a"];
+  let html = `<tr><th class="rowh">p50 ms · caller × tier</th>${tiers.map((t) => `<th>${escapeHtml(t)}</th>`).join("")}</tr>`;
+  for (const a of agents) {
+    html += `<tr><td class="rowh">${escapeHtml(a)}</td>`;
+    for (const t of tiers) {
+      const c = byPair[a + "|" + t];
+      if (!c) { html += `<td class="miss">–</td>`; continue; }
+      const idx = Math.min(RAMP.length - 1, Math.floor((c.p50_ms / max) * RAMP.length));
+      html += `<td style="background:${RAMP[idx]};color:${idx >= 3 ? "#fff" : "inherit"}" ` +
+              `title="p95 ${c.p95_ms.toLocaleString()} ms over ${c.samples} samples">` +
+              `${Math.round(c.p50_ms).toLocaleString()}</td>`;
+    }
+    html += "</tr>";
+  }
+  $("matrixtable").innerHTML = html;
+  $("matrixnote").textContent = `${cells.length} caller×tier pairs, shaded by p50 latency ` +
+    `(hover for p95 and sample count). A dash means no traffic in this window.`;
 }
 
 function chips() {
@@ -312,7 +369,7 @@ async function load() {
     $("stamp").textContent = `window: ${scope} · ${data.summary.requests} requests · ` +
       `generated ${data.generated_at} · upstream ${data.upstream}` +
       (data.config_available ? "" : " · CONFIG UNREADABLE: " + data.config_error);
-    chips(); render();
+    chips(); render(); renderMatrix();
   } catch (err) {
     $("graph").innerHTML = "";
     $("stamp").innerHTML = `<span class="err">topology unavailable: ${escapeHtml(err.message)} — ` +
@@ -325,6 +382,12 @@ $("refresh").addEventListener("click", () => {
   auto = !auto;
   $("refresh").setAttribute("aria-pressed", String(auto));
   $("refresh").textContent = "auto-refresh: " + (auto ? "on" : "off");
+});
+let showMatrix = false;
+$("matrix").addEventListener("click", () => {
+  showMatrix = !showMatrix;
+  $("matrix").setAttribute("aria-pressed", String(showMatrix));
+  renderMatrix();
 });
 let auto = true;
 setInterval(() => { if (auto) load(); }, 20000);

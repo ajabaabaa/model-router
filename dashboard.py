@@ -46,7 +46,7 @@ SUMMARY_COLUMNS = (
     "id", "timestamp", "requested_tier", "selected_tier", "routing_automatic", "routing_reason",
     "actual_model", "attempted_models", "input_tokens", "output_tokens", "latency_ms",
     "estimated_cost", "http_status", "success", "fallback_count", "budget_exhausted",
-    "finish_reason", "agent",
+    "finish_reason", "agent", "attempt_outcomes",
 )
 
 # Columns the recent-request table may show. A strict subset of SUMMARY_COLUMNS and
@@ -634,6 +634,8 @@ def build_topology(rows: list[dict[str, Any]]) -> dict[str, Any]:
 
     nodes: dict[str, dict[str, Any]] = {}
     edges: dict[tuple[str, str], dict[str, Any]] = {}
+    latencies_by_pair: dict[tuple[str, str], list[float]] = {}
+    errors_by_node: dict[str, list[dict[str, Any]]] = {}
 
     def add_node(node_id: str, kind: str, label: str, **meta: Any) -> dict[str, Any]:
         node = nodes.get(node_id)
@@ -706,9 +708,29 @@ def build_topology(rows: list[dict[str, Any]]) -> dict[str, Any]:
             node["failures"] += 0 if ok else 1
             if stamp and (node["last_seen"] is None or stamp > node["last_seen"]):
                 node["last_seen"] = stamp
+        # Latency is kept per (caller, tier) pair rather than per edge: the same caller hitting
+        # the same tier across many models would otherwise split its own distribution.
+        if row.get("latency_ms") is not None:
+            latencies_by_pair.setdefault((agent or "(untagged)", tier_name), []).append(float(row["latency_ms"]))
+        if not ok:
+            for nid in (agent_id, tier_id, model_id):
+                errors_by_node.setdefault(nid, []).append({
+                    "timestamp": stamp,
+                    "http_status": row.get("http_status"),
+                    "outcomes": row.get("attempt_outcomes"),
+                })
 
     for name in tiers:
         nodes[f"tier:{name}"]["meta"]["idle"] = nodes[f"tier:{name}"]["requests"] == 0
+    for nid, errs in errors_by_node.items():
+        if nid in nodes:
+            nodes[nid]["errors"] = errs[-5:]
+    latency_cells = [
+        {"agent": a, "tier": t, "samples": len(vals),
+         "p50_ms": round(statistics.median(vals), 1),
+         "p95_ms": round(_percentile(sorted(vals), 0.95) or 0.0, 1)}
+        for (a, t), vals in sorted(latencies_by_pair.items())
+    ]
     for edge in edges.values():
         edge["cost"] = round(edge["cost"], 6)
         if edge["requests"] == 0:
@@ -724,6 +746,11 @@ def build_topology(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "upstream": upstream_host,
         "nodes": sorted(nodes.values(), key=lambda n: (n["kind"], -n["requests"], n["label"])),
         "edges": sorted(edges.values(), key=lambda e: (e["from"], -e["requests"])),
+        "latency": {
+            "cells": latency_cells,
+            "agents": sorted({c["agent"] for c in latency_cells}),
+            "tiers": sorted({c["tier"] for c in latency_cells}),
+        },
         "summary": {
             "requests": len(rows),
             "cost": round(sum(float(r.get("estimated_cost") or 0) for r in rows), 6),

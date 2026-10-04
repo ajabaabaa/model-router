@@ -24,7 +24,8 @@ BASE_ROW = {
     "success": 1, "fallback_count": 0, "budget_exhausted": 0, "requested_tier": None,
     "routing_reason": "default_interactive", "routing_automatic": 1,
     "attempted_models": json.dumps(["m1"]), "finish_reason": "stop", "agent": "tester",
-    "request_has_tools": 0, "task_type": None,
+    "request_has_tools": 0, "task_type": None, "attempt_outcomes": json.dumps(
+        [{"model": "m1", "outcome": "ok", "http_status": 200}]),
 }
 
 FIXTURE_ROWS = [
@@ -50,7 +51,7 @@ def make_db(path, rows):
             " success INTEGER, fallback_count INTEGER, budget_exhausted INTEGER,"
             " requested_tier TEXT, routing_reason TEXT, routing_automatic INTEGER,"
             " attempted_models TEXT, finish_reason TEXT, agent TEXT,"
-            " request_has_tools INTEGER, task_type TEXT, prompt_text TEXT)"
+            " request_has_tools INTEGER, task_type TEXT, prompt_text TEXT, attempt_outcomes TEXT)"
         )
         for index, override in enumerate(rows, start=1):
             data = dict(BASE_ROW)
@@ -609,6 +610,44 @@ def test_topology_counts_failures_on_the_link_that_hit_them(monkeypatch, tmp_pat
 def test_topology_names_tiers_that_carry_no_governance_gate(monkeypatch, tmp_path, client):
     topo = topology_for(monkeypatch, tmp_path, client, [])
     assert topo["summary"]["ungoverned_tiers"] == ["balanced", "unused"]
+
+
+def test_topology_reports_latency_percentiles_per_caller_and_tier(monkeypatch, tmp_path, client):
+    """The matrix answers "who is being made to wait", which a per-model average hides."""
+    topo = topology_for(monkeypatch, tmp_path, client, [
+        {"agent": "coordinator", "selected_tier": "balanced", "latency_ms": 100.0},
+        {"agent": "coordinator", "selected_tier": "balanced", "latency_ms": 300.0},
+        {"agent": "xxpress", "selected_tier": "fast", "latency_ms": 50.0},
+    ])
+    cells = {(c["agent"], c["tier"]): c for c in topo["latency"]["cells"]}
+    assert cells[("coordinator", "balanced")]["p50_ms"] == 200.0
+    assert cells[("coordinator", "balanced")]["samples"] == 2
+    assert cells[("xxpress", "fast")]["p50_ms"] == 50.0
+    assert topo["latency"]["agents"] == ["coordinator", "xxpress"]
+    assert topo["latency"]["tiers"] == ["balanced", "fast"]
+
+
+def test_topology_attaches_failure_traces_to_every_node_the_request_touched(monkeypatch, tmp_path, client):
+    outcomes = json.dumps([{"model": "m1", "outcome": "http_429", "http_status": 429},
+                           {"model": "m2", "outcome": "ok", "http_status": 200}])
+    topo = topology_for(monkeypatch, tmp_path, client, [
+        {"selected_tier": "fast", "actual_model": "m1", "success": 0, "http_status": 504,
+         "attempt_outcomes": outcomes},
+        {"selected_tier": "fast", "actual_model": "m1"},
+    ])
+    nodes = {n["id"]: n for n in topo["nodes"]}
+    errs = nodes["tier:fast"]["errors"]
+    assert len(errs) == 1, "only the failed request should produce a trace"
+    assert errs[0]["http_status"] == 504 and errs[0]["outcomes"] == outcomes
+    assert nodes["agent:tester"]["errors"] and nodes["model:m1"]["errors"]
+
+
+def test_topology_caps_failure_traces_so_the_drawer_cannot_bloat(monkeypatch, tmp_path, client):
+    rows = [{"selected_tier": "fast", "actual_model": "m1", "success": 0, "http_status": 502}
+            for _ in range(7)]
+    topo = topology_for(monkeypatch, tmp_path, client, rows)
+    nodes = {n["id"]: n for n in topo["nodes"]}
+    assert len(nodes["tier:fast"]["errors"]) == 5
 
 
 def test_config_panel_reports_traffic_on_a_tier_that_is_not_configured(monkeypatch, tmp_path, client):
