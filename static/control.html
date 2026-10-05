@@ -181,7 +181,7 @@ footer{color:var(--mut);font:11px var(--mono);letter-spacing:.04em;padding:0 24p
     <button role="tab" data-tab="live" aria-selected="true">Live</button>
     <button role="tab" data-tab="callers" aria-selected="false">Callers</button>
     <button role="tab" data-tab="models" aria-selected="false">Models &amp; Tiers</button>
-    <button role="tab" data-tab="flow" aria-selected="false">Flow</button>
+    <button role="tab" data-tab="flow" aria-selected="false">Map</button>
     <button role="tab" data-tab="risk" aria-selected="false">Risk</button>
     <button role="tab" data-tab="controls" aria-selected="false">Controls</button>
     <button role="tab" data-tab="advisor" aria-selected="false">Advisor</button>
@@ -229,17 +229,19 @@ footer{color:var(--mut);font:11px var(--mono);letter-spacing:.04em;padding:0 24p
   </section>
 
   <section data-pane="flow" hidden>
-    <div class="panel"><h2>Routing flow</h2>
-      <div class="sub">callers → tiers → the model that actually served. Hover or click a node to isolate its routes.</div>
+    <div class="panel"><h2>Routing map</h2>
+      <div class="sub">program → agent → route → the model that actually answered. Hover a box to trace its path; click to pin it. Line thickness = traffic.</div>
       <div class="tools"><div class="seg" id="flowmetric"><button data-m="requests" aria-pressed="true">Requests</button><button data-m="cost" aria-pressed="false">Spend</button></div></div>
       <div id="flowwrap"><svg id="flow" xmlns="http://www.w3.org/2000/svg"></svg></div>
       <div class="legend">
-        <span><i style="background:#475569"></i>healthy route</span>
-        <span><i style="background:#d97706"></i>≥10% served via fallback</span>
-        <span><i style="background:#dc2626"></i>≥5% failures</span>
-        <span>⚠ served outside its tier's configured chain (config changed, or a probe)</span>
-        <span><i style="background:#334155;height:0;border-top:2px dashed #64748b"></i>configured, no traffic</span>
+        <span><i style="background:#34d399"></i>zero retention / local</span>
+        <span><i style="background:#fbbf24"></i>no data collection</span>
+        <span><i style="background:#f87171"></i>no privacy policy</span>
+        <span><i style="background:#60a5fa"></i>runs on this PC</span>
+        <span>line: <b style="color:#d97706">orange</b> ≥10% via fallback · <b style="color:#dc2626">red</b> ≥5% failures</span>
+        <span>dashed box = shared tier (several agents), not a route of its own</span>
       </div>
+      <div class="sub" id="mapnote" style="margin-top:8px"></div>
     </div>
   </section>
   <section data-pane="controls" hidden>
@@ -247,6 +249,7 @@ footer{color:var(--mut);font:11px var(--mono);letter-spacing:.04em;padding:0 24p
       <b>Changes apply to the next request</b> (no restart). Each save validates the config, makes a timestamped backup and can be undone below. Prices are OpenRouter list prices, blended at your recent input:output mix.
     </div>
     <div class="tools"><button class="btn" id="ctl-new">+ New tier</button><button class="btn" id="ctl-routes" title="Give every agent seen in the last 7 days its own route, copied from the tier it used most — nothing changes until you edit it">Create agent routes from usage</button><button class="btn" id="ctl-refresh">Refresh</button><span class="label" id="ctl-status"></span></div>
+    <datalist id="programs"><option value="OpenClaw"><option value="OpenHuman"><option value="Router tests"></datalist>
     <div class="cgrid" id="ctl-tiers"></div>
     <div id="ctl-picker"></div>
     <div class="panel"><h2>Recent changes</h2><div class="sub">undo restores the config as it was before that change (the current file is backed up first)</div><div id="ctl-audit"></div></div>
@@ -545,59 +548,58 @@ function renderModels(d){
   ], d.models);
 }
 
-/* ---------- flow (sankey-style) ---------- */
+/* ---------- routing map (nodes and arrows) ---------- */
+const PROT_COLOR = {"zero-retention":"#34d399", local:"#60a5fa", "no-collection":"#fbbf24", none:"#f87171"};
 function renderFlow(d){
-  const svg = $("#flow"), m = state.flowMetric, F = d.flow;
+  const svg = $("#flow"), m = state.flowMetric, M = d.map;
   const val = o => m === "cost" ? o.cost : o.requests;
-  const cols = [["caller",["caller","synthetic","unknown"]], ["tier",["tier"]], ["model",["model"]]];
-  const byCol = cols.map(([,kinds]) => F.nodes.filter(n => kinds.includes(n.kind)));
-  const nodeIds = new Set(F.nodes.map(n => n.id));
-  const edges = F.edges.filter(e => nodeIds.has(e.from) && nodeIds.has(e.to));
-  if (!F.nodes.some(n => val(n) > 0)) { svg.innerHTML = ""; svg.setAttribute("height", 80); svg.innerHTML = `<text x="20" y="40" class="sub">no traffic in this window</text>`; return; }
-  const W = Math.max(900, svg.parentElement.clientWidth), colW = 150, padX = 150, H0 = 520;
-  const xs = [padX, (W - colW) / 2, W - colW - padX + 40].map(x => Math.max(10, x));
-  const GAP = 8, MINH = 16;
-  byCol.forEach(c => c.sort((a,b) => val(b) - val(a) || b.requests - a.requests));
-  const through = new Map();
-  edges.forEach(e => { through.set(e.from, (through.get(e.from) || 0) + val(e)); through.set(e.to, (through.get(e.to) || 0) + 0); });
-  const inSum = new Map(), outSum = new Map();
-  edges.forEach(e => { outSum.set(e.from, (outSum.get(e.from)||0) + val(e)); inSum.set(e.to, (inSum.get(e.to)||0) + val(e)); });
-  const nv = n => Math.max(inSum.get(n.id)||0, outSum.get(n.id)||0, val(n));
-  const scale = Math.min(...byCol.map(c => { const tot = c.reduce((s,n) => s + nv(n), 0) || 1; return (H0 - 40 - GAP * c.length - MINH * c.length * 0) / tot; }));
-  const pos = new Map(); let maxH = 0;
-  byCol.forEach((c, ci) => { let y = 28; c.forEach(n => { const h = Math.max(MINH, nv(n) * scale); pos.set(n.id, {x:xs[ci], y, h, in:0, out:0, n}); y += h + GAP; }); maxH = Math.max(maxH, y); });
-  svg.setAttribute("viewBox", `0 0 ${W} ${maxH + 16}`); svg.setAttribute("height", maxH + 16);
-  const links = [...edges].sort((a,b) => val(b) - val(a)).map(e => {
+  if (!M || !M.nodes.some(n => val(n) > 0 || n.requests > 0)) { svg.setAttribute("height", 80); svg.innerHTML = `<text x="20" y="40" class="sub">no traffic in this window</text>`; $("#mapnote").textContent = ""; return; }
+  const cols = [0,1,2,3].map(c => M.nodes.filter(n => n.col === c).sort((a,b) => val(b) - val(a) || b.requests - a.requests));
+  const W = Math.max(960, svg.parentElement.clientWidth), BW = 200, BH = 46, GAP = 12, TOP = 30;
+  const xs = [0,1,2,3].map(i => 8 + i * ((W - 16 - BW) / 3));
+  const maxN = Math.max(...cols.map(c => c.length));
+  const H = TOP + maxN * (BH + GAP) + 10;
+  const pos = new Map();
+  cols.forEach((c, ci) => { const used = c.length * (BH + GAP), off = (maxN * (BH + GAP) - used) / 2; c.forEach((n, i) => pos.set(n.id, {x: xs[ci], y: TOP + off + i * (BH + GAP), n, o: 0, i: 0})); });
+  const maxV = Math.max(...M.edges.map(val), 1);
+  const lw = e => Math.max(1.5, Math.sqrt(val(e) / maxV) * 16);
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`); svg.setAttribute("height", H);
+  const links = [...M.edges].sort((a,b) => val(b) - val(a)).map(e => {
     const s = pos.get(e.from), t = pos.get(e.to); if (!s || !t) return "";
-    const v = val(e), w = Math.max(v > 0 ? 1.5 : 1, v * scale);
-    const sy = s.y + s.out + w/2, ty = t.y + t.in + w/2; s.out += v > 0 ? w : 0; t.in += v > 0 ? w : 0;
-    const x1 = s.x + colW, x2 = t.x, c = (x2 - x1) * .5;
-    const bad = e.requests ? e.failures / e.requests : 0, color = v === 0 ? "#64748b" : bad >= .05 ? "#dc2626" : (e.requests && e.fallbacks / e.requests >= .1) ? "#d97706" : "#475569";
-    const tip = `${s.n.label} → ${t.n.label}: ${int(e.requests)} calls, ${money(e.cost)}${e.failures ? `, ${e.failures} failed` : ""}${e.fallbacks ? `, ${e.fallbacks} via fallback` : ""}${e.p95_ms ? `, p95 ${ms(e.p95_ms)}` : ""}${e.declared && v === 0 ? " (configured, no traffic)" : ""}`;
-    return `<path class="link" data-from="${esc(e.from)}" data-to="${esc(e.to)}" d="M${x1},${sy} C${x1+c},${sy} ${x2-c},${ty} ${x2},${ty}" stroke="${color}" stroke-width="${w}" stroke-opacity="${v === 0 ? .55 : .5}" ${v === 0 ? 'stroke-dasharray="4 4"' : ""}><title>${esc(tip)}</title></path>`;
+    const w = lw(e), x1 = s.x + BW, x2 = t.x, y1 = s.y + BH / 2, y2 = t.y + BH / 2, c = (x2 - x1) * .5;
+    const bad = e.requests ? e.failures / e.requests : 0;
+    const color = !e.requests ? "#64748b" : bad >= .05 ? "#dc2626" : e.fallbacks / e.requests >= .1 ? "#d97706" : "#64748b";
+    const tip = `${s.n.label} → ${t.n.label}: ${int(e.requests)} calls, ${money(e.cost)}${e.failures ? `, ${e.failures} failed` : ""}${e.fallbacks ? `, ${e.fallbacks} via fallback` : ""}${e.requests ? "" : " (configured, no traffic)"}`;
+    return `<path class="link" data-from="${esc(e.from)}" data-to="${esc(e.to)}" d="M${x1},${y1} C${x1+c},${y1} ${x2-c},${y2} ${x2},${y2}" stroke="${color}" stroke-width="${w}" stroke-opacity="${e.requests ? .55 : .5}" ${e.requests ? "" : 'stroke-dasharray="4 4"'}><title>${esc(tip)}</title></path>`;
   }).join("");
-  const nodes = [...pos.values()].map(({x,y,h,n}) => {
+  const nodes = [...pos.values()].map(({x, y, n}) => {
     const fail = n.requests ? n.failures / n.requests : 0;
-    const fill = n.kind === "unknown" ? "#d97706" : n.kind === "synthetic" ? "#64748b" : n.kind === "caller" ? "#34d399" : n.kind === "tier" ? "#94a3b8" : n.label.endsWith(":free") ? "#34d399" : "#cbd5e1";
-    const flag = n.off_config || n.off_chain ? " ⚠" : "";
-    const sub = `${int(n.requests)} calls · ${money(n.cost)}${fail >= .05 ? " · " + Math.round(fail*100) + "% fail" : ""}`;
-    const lab = (n.kind === "model" ? short(n.label) : n.label) + flag;
-    return `<g class="node" data-id="${esc(n.id)}" opacity="${n.requests || n.kind === "tier" ? 1 : .55}"><rect x="${x}" y="${y}" width="6" height="${h}" fill="${fail >= .05 ? "#dc2626" : fill}"/>
-      <text x="${x+14}" y="${y + Math.min(h/2, 12) + (h < 30 ? 3 : 0)}">${esc(lab.length > 26 ? lab.slice(0,25) + "…" : lab)}</text>
-      ${h >= 30 ? `<text class="sub" x="${x+14}" y="${y + 27}">${esc(sub)}</text>` : ""}<title>${esc(n.label)} — ${esc(sub)}</title></g>`;
+    const edge = n.col === 2 ? (PROT_COLOR[n.protection] || "#94a3b8") : n.col === 0 ? "#34d399" : "#475569";
+    const lab = n.col === 3 ? short(n.label) : n.label, sub = `${int(n.requests)} calls · ${money(n.cost)}${fail >= .05 ? " · " + Math.round(fail * 100) + "% fail" : ""}`;
+    const dash = n.col === 2 && n.shared ? ' stroke-dasharray="5 3"' : "";
+    const tag = n.col === 2 ? (n.missing ? " ⚠ no such route" : n.local ? " · local" : "") : "";
+    return `<g class="node" data-id="${esc(n.id)}" opacity="${n.requests ? 1 : .6}"><rect x="${x}" y="${y}" width="${BW}" height="${BH}" rx="7" fill="#0f172a" stroke="${fail >= .05 ? "#dc2626" : edge}" stroke-width="${n.col === 2 ? 2 : 1.2}"${dash}/>
+      <text x="${x + 10}" y="${y + 19}">${esc(lab.length > 22 ? lab.slice(0, 21) + "…" : lab)}</text>
+      <text class="sub" x="${x + 10}" y="${y + 36}">${esc((sub + tag).slice(0, 32))}</text><title>${esc(n.label)} — ${esc(sub)}${esc(tag)}</title></g>`;
   }).join("");
-  const heads = ["CALLERS","TIERS","SERVED BY"].map((t,i) => `<text class="colhead" x="${xs[i]}" y="14">${t}</text>`).join("");
+  const heads = (M.columns || []).map((t, i) => `<text class="colhead" x="${xs[i]}" y="16">${t.toUpperCase()}</text>`).join("");
   svg.innerHTML = heads + links + nodes;
+  const un = M.nodes.filter(n => n.col === 0 && n.label === "Unassigned" && n.requests);
+  $("#mapnote").textContent = un.length ? "Agents under “Unassigned” have no program set. Name one in an agent route's card (Controls tab) to group it." : "";
   const apply = id => {
     state.flowFocus = id; svg.classList.toggle("focus", !!id);
     const keep = new Set(id ? [id] : []);
-    $$(".link", svg).forEach(p => { const on = id && (p.dataset.from === id || p.dataset.to === id); p.classList.toggle("on", !!on); if (on) { keep.add(p.dataset.from); keep.add(p.dataset.to); } });
-    // second hop: show the full route through the focused node
-    if (id) $$(".link", svg).forEach(p => { if (keep.has(p.dataset.from) && (p.dataset.from === id || p.dataset.to === id) === false && (keep.has(p.dataset.to))) p.classList.add("on"); });
+    if (id) { // walk both directions so the whole path stays lit
+      let grew = true; while (grew) { grew = false; $$(".link", svg).forEach(p => {
+        const f = p.dataset.from, t = p.dataset.to, cf = pos.get(f).n.col, ct = pos.get(t).n.col, c0 = pos.get(id).n.col;
+        if ((keep.has(f) && ct > c0 && cf >= c0) || (keep.has(t) && cf < c0 && ct <= c0)) { if (!keep.has(f) || !keep.has(t)) { keep.add(f); keep.add(t); grew = true; } }
+      }); }
+    }
+    $$(".link", svg).forEach(p => p.classList.toggle("on", !id || (keep.has(p.dataset.from) && keep.has(p.dataset.to))));
     $$(".node", svg).forEach(g => g.classList.toggle("on", !id || keep.has(g.dataset.id)));
   };
   $$(".node", svg).forEach(g => { g.onmouseenter = () => { if (!pinned) apply(g.dataset.id); }; g.onmouseleave = () => { if (!pinned) apply(null); }; g.onclick = () => { pinned = pinned === g.dataset.id ? null : g.dataset.id; apply(pinned); }; });
-  apply(pinned);
+  apply(pinned && pos.has(pinned) ? pinned : null);
 }
 let pinned = null;
 $("#flowmetric").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; state.flowMetric = b.dataset.m; $$("#flowmetric button").forEach(x => x.setAttribute("aria-pressed", x === b)); save(); render(); });
@@ -702,7 +704,7 @@ async function loadCtl(){
     renderCtl();
   } catch (e) { $("#ctl-tiers").innerHTML = `<div class="note">Could not load tiers: ${esc(e.message)}</div>`; }
 }
-const orig = (name) => { const t = state.ctl.data.tiers[name]; return {primary: t.primary, fallbacks: [...t.fallbacks], policy: "keep", effort: t.reasoning_effort ?? null}; };
+const orig = (name) => { const t = state.ctl.data.tiers[name]; return {primary: t.primary, fallbacks: [...t.fallbacks], policy: "keep", effort: t.reasoning_effort ?? null, program: t.program ?? ""}; };
 const draftOf = name => name === "__new" ? state.ctl.newTier : (state.ctl.drafts[name] || orig(name));
 const isDirty = name => name === "__new" || JSON.stringify(draftOf(name)) !== JSON.stringify(orig(name));
 function priceOf(id){ const c = state.ctl.prices?.[id]; return c || null; }
@@ -744,6 +746,7 @@ function tierCard(name){
     ${rows}
     <div class="foot"><button class="btn sm" data-act="add" data-t="${esc(name)}">+ Add model</button>
       <label class="muted mono" style="font-size:11px">privacy <select data-act="policy" data-t="${esc(name)}" ${isLocal ? "disabled" : ""}>${pol.map(p => `<option value="${p}" ${dr.policy === p || isLocal ? "selected" : ""}>${POLICY_LABEL[p]}${p === "keep" ? " (" + PROT_LABEL[cur.protection].toLowerCase() + ")" : ""}</option>`).join("")}</select></label>${delta}
+      ${cur && cur.agent ? `<label class="muted mono" style="font-size:11px">program <input type="text" data-act="program" data-t="${esc(name)}" list="programs" maxlength="30" value="${esc(dr.program ?? "")}" placeholder="e.g. OpenClaw" style="width:110px"></label>` : ""}
       <label class="muted mono" style="font-size:11px">reasoning <select data-act="effort" data-t="${esc(name)}">${[["","default"],["none","none"],["minimal","minimal"],["low","low"],["medium","medium"],["high","high"]].map(([v,l]) => `<option value="${v}" ${(dr.effort ?? "") === v ? "selected" : ""}>${l}</option>`).join("")}</select></label></div>
     <div class="foot">${dirty ? `<button class="btn primary sm" data-act="save" data-t="${esc(name)}">${isNew ? "Create tier" : "Save changes"}</button><button class="btn sm" data-act="revert" data-t="${esc(name)}">${isNew ? "Cancel" : "Revert"}</button>` : ""}
       ${!isNew ? `<button class="btn sm" data-act="delete" data-t="${esc(name)}" style="margin-left:auto;color:var(--bad)">Delete tier</button>` : ""}</div>
@@ -758,6 +761,7 @@ $("#ctl-tiers").addEventListener("input", e => { if (e.target.id === "nt-name") 
 $("#ctl-tiers").addEventListener("change", e => {
   const pv = e.target.closest("select[data-act=provider]");
   if (pv) { Object.assign(state.ctl.newTier, {provider: pv.value, primary: null, fallbacks: [], policy: pv.value === "ollama" ? "local" : "zdr"}); state.ctl.picker = null; renderCtl(); return; }
+  const pg = e.target.closest("input[data-act=program]"); if (pg) { setDraft(pg.dataset.t, dr => { dr.program = pg.value.trim(); }); return; }
   const ef = e.target.closest("select[data-act=effort]"); if (ef) { setDraft(ef.dataset.t, dr => { dr.effort = ef.value || null; }); return; }
   const s = e.target.closest("select[data-act=policy]"); if (s) setDraft(s.dataset.t, dr => { dr.policy = s.value; });
 });
@@ -775,7 +779,7 @@ async function saveTier(t, confirm){
   if (isNew && !name) { state.ctl.msg[t] = {cls:"err", text:"Give the new tier a name first."}; return renderCtl(); }
   if (!dr.primary) { state.ctl.msg[t] = {cls:"err", text:"A tier needs at least one model."}; return renderCtl(); }
   state.ctl.msg[t] = {cls:"", text:"saving…"}; renderCtl();
-  const res = await api("PUT", "/api/control/tiers", {base_hash: state.ctl.data.config_hash, action: isNew ? "create" : "set", tier: name, primary: dr.primary, fallbacks: dr.fallbacks, policy: dr.policy, confirm, ...(isNew ? {provider: dr.provider} : {}), ...((dr.effort ?? null) !== (isNew ? null : orig(t).effort) ? {reasoning_effort: dr.effort ?? null} : {})});
+  const res = await api("PUT", "/api/control/tiers", {base_hash: state.ctl.data.config_hash, action: isNew ? "create" : "set", tier: name, primary: dr.primary, fallbacks: dr.fallbacks, policy: dr.policy, confirm, ...(isNew ? {provider: dr.provider} : {}), ...(!isNew && (dr.program ?? "") !== orig(t).program ? {program: dr.program ?? ""} : {}), ...((dr.effort ?? null) !== (isNew ? null : orig(t).effort) ? {reasoning_effort: dr.effort ?? null} : {})});
   if (res.status === 409 && res.json.error === "needs_confirmation") {
     if (window.confirm(res.json.message + "\n\nApply anyway?")) return saveTier(t, true);
     state.ctl.msg[t] = {cls:"", text:"not saved"}; return renderCtl();

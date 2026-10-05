@@ -24,6 +24,7 @@ from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
 import advisor
+import routemap
 import canary
 import catalog
 import config_store
@@ -305,7 +306,7 @@ def build_overview(window: str, include_synthetic: bool) -> dict[str, Any]:
         "config_available": config.get("available", False),
         "kpis": kpis, "prior": prior, "untagged_hints": hints,
         "series": _series(rows, start, now, width), "bucket_seconds": int(width.total_seconds()),
-        "callers": callers, "models": models, "tiers": tiers, "flow": flow_slim, "feed": feed,
+        "callers": callers, "models": models, "tiers": tiers, "flow": flow_slim, "map": _route_map(rows), "feed": feed,
     }
 
 
@@ -329,6 +330,14 @@ def control_page() -> Any:
     except (OSError, UnicodeDecodeError):
         return HTMLResponse("<!doctype html><title>control center unavailable</title>"
                             "<p>static/control.html could not be read.</p>", status_code=503)
+
+
+def _route_map(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    try:
+        config, _ = config_store.read()
+    except config_store.ConfigError:
+        config = {}
+    return routemap.build(rows, config)
 
 
 # ---------------------------------------------------------------------------------------------
@@ -532,7 +541,7 @@ def control_tiers() -> Any:
         tiers[name] = {"primary": tier.get("primary"), "fallbacks": list(tier.get("fallbacks") or []),
                        "provider": tier.get("provider"), "policy": policy,
                        "protection": "local" if local else risk.protection_of(policy),
-                       "min_max_tokens": tier.get("min_max_tokens"), "agent": tier.get("agent"),
+                       "min_max_tokens": tier.get("min_max_tokens"), "agent": tier.get("agent"), "program": tier.get("program"),
                        "reasoning_effort": tier.get("reasoning_effort"),
                        "chain": [(_priced_local(m, installed) if local else _priced(m, prices, ratio))
                                  for m in chain if isinstance(m, str)]}
@@ -656,6 +665,14 @@ async def control_put_tiers(request: Request) -> Any:
                 _check_chain(tier, chain, prices, verified, keep)
                 choice_used = choice
             tiers[tier]["primary"], tiers[tier]["fallbacks"] = chain[0], chain[1:]
+            if "program" in body:
+                prog = body["program"]
+                if prog in (None, ""):
+                    tiers[tier].pop("program", None)
+                elif isinstance(prog, str) and routemap.PROGRAM_OK.match(prog):
+                    tiers[tier]["program"] = prog
+                else:
+                    raise config_store.ConfigError("program must be 1-30 letters, digits, space . _ -")
             if "reasoning_effort" in body:
                 if body["reasoning_effort"] not in EFFORTS:
                     raise config_store.ConfigError("reasoning_effort must be null, none, minimal, low, medium or high")

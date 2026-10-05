@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import os
 import tempfile
 import threading
@@ -102,6 +103,9 @@ def validate(config: dict[str, Any]) -> None:
         owner = tier.get("agent")
         if owner is not None and owner != name:
             raise ConfigError(f"tier {name!r}: 'agent' must equal the route's own name")
+        prog = tier.get("program")
+        if prog is not None and (not isinstance(prog, str) or not re.match(r"^[A-Za-z0-9][A-Za-z0-9 ._-]{0,29}$", prog)):
+            raise ConfigError(f"tier {name!r}: program must be 1-30 letters, digits, space . _ -")
         if "reasoning_effort" in tier and tier["reasoning_effort"] not in (None, "none", "minimal", "low", "medium", "high"):
             raise ConfigError(f"tier {name!r}: reasoning_effort must be null, none, minimal, low, medium or high")
         floor = tier.get("min_max_tokens")
