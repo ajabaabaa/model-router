@@ -17,6 +17,8 @@ def test_columns_edges_and_programs():
     by = {n["id"]: n for n in m["nodes"]}
     assert by["a:writer"]["col"] == 1 and by["p:OpenClaw"]["requests"] == 2
     assert by["p:OpenHuman"]["requests"] == 1 and by["p:Unassigned"]["requests"] == 1   # prefix rule + unattributed
+    assert routemap.program_of("coordinator", {}) == "OpenClaw"                          # named agents default to OpenClaw
+    assert routemap.program_of("coordinator", {}, "Other") == "Other"
     assert by["r:writer"]["protection"] == "zero-retention" and by["r:writer"]["shared"] is False
     assert by["r:balanced"]["shared"] is True
     e = next(e for e in m["edges"] if (e["from"], e["to"]) == ("a:writer", "r:writer"))

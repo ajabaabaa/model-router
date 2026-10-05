@@ -1,8 +1,8 @@
 """Program -> agent -> route -> model map for the Control Center, built from telemetry rows plus config.
 
 Programs are the software that calls the router (OpenClaw, OpenHuman ...). A route can carry an
-optional ``program`` label; a few name prefixes are recognised; everything else is "Unassigned" so
-the page asks the operator rather than guessing.
+optional ``program`` label; a few name prefixes are recognised; any other named agent falls under
+``default_program`` (config key, default "OpenClaw"). Calls with no agent label at all stay "Unassigned".
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ PROGRAM_PREFIX = (("openhuman", "OpenHuman"), ("router-", "Router tests"), ("jev
 PROGRAM_OK = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._-]{0,29}$")
 
 
-def program_of(agent: str, tiers: dict[str, Any]) -> str:
+def program_of(agent: str, tiers: dict[str, Any], default: str = "OpenClaw") -> str:
     route = tiers.get(agent)
     if isinstance(route, dict) and isinstance(route.get("program"), str) and route["program"]:
         return route["program"]
@@ -26,7 +26,7 @@ def program_of(agent: str, tiers: dict[str, Any]) -> str:
     for prefix, name in PROGRAM_PREFIX:
         if low.startswith(prefix):
             return name
-    return UNASSIGNED
+    return default
 
 
 def _prot(tier: Any) -> str:
@@ -37,6 +37,7 @@ def _prot(tier: Any) -> str:
 
 def build(rows: list[dict[str, Any]], config: dict[str, Any]) -> dict[str, Any]:
     tiers = config.get("tiers") if isinstance(config.get("tiers"), dict) else {}
+    dflt = config.get("default_program") if isinstance(config.get("default_program"), str) and PROGRAM_OK.match(config["default_program"]) else "OpenClaw"
     nodes: dict[str, dict[str, Any]] = {}
     edges: dict[tuple[str, str], dict[str, Any]] = {}
 
@@ -53,7 +54,7 @@ def build(rows: list[dict[str, Any]], config: dict[str, Any]) -> dict[str, Any]:
         agent = (row.get("agent") or "").strip() or UNATTRIBUTED
         route = row.get("selected_tier") or "(none)"
         model = row.get("actual_model") or "(none)"
-        program = program_of(agent, tiers) if agent != UNATTRIBUTED else UNASSIGNED
+        program = program_of(agent, tiers, dflt) if agent != UNATTRIBUTED else UNASSIGNED
         cost = float(row.get("estimated_cost") or 0)
         failed = 0 if str(row.get("success")).lower() in ("1", "true") else 1
         fb = 1 if int(row.get("fallback_count") or 0) else 0
@@ -73,7 +74,7 @@ def build(rows: list[dict[str, Any]], config: dict[str, Any]) -> dict[str, Any]:
     # idle agent routes still appear, so a freshly created route is visible before it has traffic
     for name, tier in tiers.items():
         if isinstance(tier, dict) and tier.get("agent") == name and f"r:{name}" not in nodes:
-            program = program_of(name, tiers)
+            program = program_of(name, tiers, dflt)
             node(f"p:{program}", 0, program); node(f"a:{name}", 1, name)
             node(f"r:{name}", 2, name, protection=_prot(tier), shared=False, local=tier.get("provider") == "ollama", missing=False)
             edge(f"p:{program}", f"a:{name}"); edge(f"a:{name}", f"r:{name}")

@@ -114,6 +114,9 @@ def validate(config: dict[str, Any]) -> None:
     fallback_route = config.get("default_route")
     if fallback_route is not None and fallback_route not in tiers:
         raise ConfigError("default_route must name an existing route")
+    dp = config.get("default_program")
+    if dp is not None and (not isinstance(dp, str) or not re.match(r"^[A-Za-z0-9][A-Za-z0-9 ._-]{0,29}$", dp)):
+        raise ConfigError("default_program must be 1-30 letters, digits, space . _ -")
     local = config.get("ollama")
     if local is not None:
         base = local.get("base_url") if isinstance(local, dict) else None
