@@ -300,3 +300,13 @@ def test_inbound_hostile_strings_are_trimmed(tmp_path):
     r = irec("a\x07" + "b" * 400, 80, "1.2.3.4" + "9" * 300, "public", 3, 2)
     c = egress.read_ingress(iwrite(tmp_path, [r]))[0]
     assert "\x07" not in c["proc"] and len(c["proc"]) == egress.STR_MAX and len(c["remote"]) == egress.STR_MAX
+
+
+def test_links_carry_the_router_split_per_program_and_provider():
+    from datetime import datetime, timedelta, timezone
+    now = datetime.now(timezone.utc)
+    mk = lambda router: {"start": now - timedelta(minutes=5), "end": now - timedelta(minutes=4), "proc": "node", "provider": "openrouter",
+                         "domain": "openrouter.ai", "ip": "1.1.1.1", "port": 443, "router": router, "shared": False, "pid": None, "active": False}
+    out = egress.build([mk(True), mk(False), mk(False)], None, now, None)
+    link = out["programs"][0]["links"][0]
+    assert (link["via_router"], link["direct"]) == (1, 2)

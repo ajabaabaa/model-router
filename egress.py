@@ -127,8 +127,9 @@ def build(records: list[dict[str, Any]], active: dict[str, Any] | None, now: dat
             e["via_router" if r["router"] else "direct"] += 1
             e["first"], e["last"] = min(e["first"], r["start"]), max(e["last"], r["end"])
             other = r["proc"] if table is providers else r["provider"]
-            link = e["links"].setdefault(other, {"connections": 0, "seconds": 0.0})
+            link = e["links"].setdefault(other, {"connections": 0, "seconds": 0.0, "via_router": 0, "direct": 0})
             link["connections"] += 1; link["seconds"] += secs
+            link["via_router" if r["router"] else "direct"] += 1
 
     def fmt(table: dict[str, dict[str, Any]], label: str) -> list[dict[str, Any]]:
         out = []
@@ -136,7 +137,8 @@ def build(records: list[dict[str, Any]], active: dict[str, Any] | None, now: dat
             out.append({label: name, "connections": e["connections"], "seconds": round(e["seconds"]),
                         "via_router": e["via_router"], "direct": e["direct"], "shared": e["shared"],
                         "first": e["first"].strftime("%Y-%m-%dT%H:%M:%SZ"), "last": e["last"].strftime("%Y-%m-%dT%H:%M:%SZ"),
-                        "links": sorted(({"name": k, **{"connections": v["connections"], "seconds": round(v["seconds"])}}
+                        "links": sorted(({"name": k, **{"connections": v["connections"], "seconds": round(v["seconds"]),
+                                                           "via_router": v["via_router"], "direct": v["direct"]}}
                                          for k, v in e["links"].items()), key=lambda x: -x["connections"])})
         return sorted(out, key=lambda x: -x["connections"])
 

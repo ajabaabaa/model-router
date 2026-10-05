@@ -114,16 +114,26 @@ tr.failrow td:first-child{box-shadow:inset 3px 0 var(--bad-d)}
 .tools input::placeholder{color:var(--mut)}
 
 /* flow */
-#flowwrap{overflow:auto}
+#flowwrap,#egwrap{overflow:auto}
+#egflowwrap{overflow:auto}
 #flow{display:block;width:100%;min-width:900px}
+#egflow{display:block;width:100%;min-width:900px}
 #flow text{font:500 11.5px var(--mono);fill:var(--tx)}
+#egflow text{font:500 11.5px var(--mono);fill:var(--tx)}
 #flow .sub{fill:var(--mut);font-size:10.5px}
+#egflow .sub{fill:var(--mut);font-size:10.5px}
 #flow .colhead{fill:var(--mut);font:500 11px var(--mono);letter-spacing:.06em}
+#egflow .colhead{fill:var(--mut);font:500 11px var(--mono);letter-spacing:.06em}
 #flow .link{fill:none;transition:opacity .15s}
+#egflow .link{fill:none;transition:opacity .15s}
 #flow .node rect{rx:2}
+#egflow .node rect{rx:2}
 #flow .node{cursor:pointer}
+#egflow .node{cursor:pointer}
 #flow.focus .link:not(.on){opacity:.06}
+#egflow.focus .link:not(.on){opacity:.06}
 #flow.focus .node:not(.on){opacity:.3}
+#egflow.focus .node:not(.on){opacity:.3}
 .legend{display:flex;gap:16px;flex-wrap:wrap;font:400 11.5px var(--mono);color:var(--mut);margin-top:10px}
 .legend i{display:inline-block;width:14px;height:4px;margin-right:6px;vertical-align:middle}
 .note{border:1px solid rgba(217,119,6,.3);background:rgba(217,119,6,.08);color:#fbbf24;border-radius:4px;padding:10px 12px;font:12px/18px var(--sans);margin-bottom:16px}
@@ -230,18 +240,23 @@ footer{color:var(--mut);font:11px var(--mono);letter-spacing:.04em;padding:0 24p
 
   <section data-pane="flow" hidden>
     <div class="panel"><h2>Routing map</h2>
-      <div class="sub">program → agent → route → the model that actually answered. Hover a box to trace its path; click to pin it. Line thickness = traffic.</div>
-      <div class="tools"><div class="seg" id="flowmetric"><button data-m="requests" aria-pressed="true">Requests</button><button data-m="cost" aria-pressed="false">Spend</button></div></div>
+      <div class="sub" id="flowhelp"></div>
+      <div class="tools"><div class="seg" id="flowview"><button data-v="map" aria-pressed="true">Node map</button><button data-v="sankey" aria-pressed="false">Classic flow</button></div> <div class="seg" id="flowmetric"><button data-m="requests" aria-pressed="true">Requests</button><button data-m="cost" aria-pressed="false">Spend</button></div></div>
       <div id="flowwrap"><svg id="flow" xmlns="http://www.w3.org/2000/svg"></svg></div>
       <div class="legend">
-        <span><i style="background:#34d399"></i>zero retention / local</span>
-        <span><i style="background:#fbbf24"></i>no data collection</span>
-        <span><i style="background:#f87171"></i>no privacy policy</span>
-        <span><i style="background:#60a5fa"></i>runs on this PC</span>
-        <span>line: <b style="color:#d97706">orange</b> ≥10% via fallback · <b style="color:#dc2626">red</b> ≥5% failures</span>
-        <span>dashed box = shared tier (several agents), not a route of its own</span>
+        <span class="maponly"><i style="background:#34d399"></i>zero retention / local</span>
+        <span class="maponly"><i style="background:#fbbf24"></i>no data collection</span>
+        <span class="maponly"><i style="background:#f87171"></i>no privacy policy</span>
+        <span class="maponly"><i style="background:#60a5fa"></i>runs on this PC</span>
+        <span class="maponly">box edge = privacy · dashed box = shared tier · <a href="#" id="maplayout">reset layout</a></span>
+        <span><i style="background:#475569"></i>healthy line</span>
+        <span><i style="background:#d97706"></i>≥10% via fallback</span>
+        <span><i style="background:#dc2626"></i>≥5% failures</span>
+        <span class="sankonly">⚠ served outside its tier's configured chain</span>
+        <span class="sankonly"><i style="background:#334155;height:0;border-top:2px dashed #64748b"></i>configured, no traffic</span>
       </div>
       <div class="sub" id="mapnote" style="margin-top:8px"></div>
+      <div id="mapdetail"></div>
     </div>
   </section>
   <section data-pane="controls" hidden>
@@ -280,8 +295,11 @@ footer{color:var(--mut);font:11px var(--mono);letter-spacing:.04em;padding:0 24p
     <div id="eg-gap"></div>
     <div id="eg-msg"></div>
     <div id="eg-block"></div>
-    <div class="panel"><h2>AI providers reached</h2><div class="sub">every provider any program on this machine held a connection to (window from the top bar)</div><div class="tw"><table id="eg-prov"></table></div></div>
-    <div class="panel" style="margin-top:16px"><h2>Programs</h2><div class="sub">which program talked to which provider — "via router" means the call went through your router and is in the other tabs</div><div class="tw"><table id="eg-proc"></table></div></div>
+    <div class="tools"><div class="seg" id="egview"><button data-v="map" aria-pressed="true">Node map</button><button data-v="tables" aria-pressed="false">Tables</button></div></div>
+    <div class="panel egmap"><h2>Who talks to which AI provider</h2><div class="sub">program → your router (or straight out) → provider. Amber lines skip your router; red ones skip it even though it could have carried them. Drag boxes, click for details.</div>
+      <div id="egwrap"><svg id="egflow" xmlns="http://www.w3.org/2000/svg"></svg></div><div id="egdetail"></div></div>
+    <div class="panel egtables"><h2>AI providers reached</h2><div class="sub">every provider any program on this machine held a connection to (window from the top bar)</div><div class="tw"><table id="eg-prov"></table></div></div>
+    <div class="panel egtables" style="margin-top:16px"><h2>Programs</h2><div class="sub">which program talked to which provider — "via router" means the call went through your router and is in the other tabs</div><div class="tw"><table id="eg-proc"></table></div></div>
     <div class="panel" style="margin-top:16px"><h2>Connected right now</h2><div class="tw"><table id="eg-active"></table></div></div>
     <div class="panel" style="margin-top:16px"><h2>Active blocks</h2><div class="sub">Windows Firewall rules created by this tool. Creating or removing one needs a Windows admin prompt, so each change is a script you download and approve.</div><div id="eg-blocks"></div></div>
     <div class="panel" style="margin-top:16px"><h2>Unidentified connections</h2><div class="sub">programs holding HTTPS connections to hosts the collector could not name. Most are ordinary; an AI service not in <span class="mono">egress_domains.json</span> would show up here.</div><div id="eg-unres"></div></div>
@@ -323,10 +341,11 @@ const $$ = (s, r=document) => [...r.querySelectorAll(s)];
 const esc = v => String(v ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
 const state = { window: "1h", synth: false, paused: false, tab: "live", data: null, lastId: 0,
-                sort: {callers:["cost",-1], models:["cost",-1]}, flowMetric: "requests", flowFocus: null,
+                sort: {callers:["cost",-1], models:["cost",-1]}, flowMetric: "requests", flowView: "map", egView: "map", egSel: null, egPos: {}, flowFocus: null, mapPos: {}, mapSel: null,
                 feedQ: "", feedFail: false, failures: 0 };
 try { Object.assign(state, JSON.parse(localStorage.getItem("ctl") || "{}"), {data:null,lastId:0,failures:0,paused:false}); } catch(e){}
-const save = () => { try { localStorage.setItem("ctl", JSON.stringify({window:state.window,synth:state.synth,tab:state.tab,flowMetric:state.flowMetric})); } catch(e){} };
+try { state.mapPos = JSON.parse(localStorage.getItem("mapPos") || "{}") || {}; state.egPos = JSON.parse(localStorage.getItem("egPos") || "{}") || {}; } catch(e){ state.mapPos = {}; state.egPos = {}; }
+const save = () => { try { localStorage.setItem("ctl", JSON.stringify({window:state.window,synth:state.synth,tab:state.tab,flowMetric:state.flowMetric,flowView:state.flowView,egView:state.egView})); } catch(e){} };
 
 /* ---------- formatting ---------- */
 const money = v => v == null ? "—" : v === 0 ? "$0" : Math.abs(v) < 0.01 ? "$" + v.toFixed(4) : Math.abs(v) < 100 ? "$" + v.toFixed(2) : "$" + Math.round(v).toLocaleString();
@@ -550,56 +569,144 @@ function renderModels(d){
 
 /* ---------- routing map (nodes and arrows) ---------- */
 const PROT_COLOR = {"zero-retention":"#34d399", local:"#60a5fa", "no-collection":"#fbbf24", none:"#f87171"};
+const MAP = {BW: 200, BH: 46, GAP: 12, TOP: 30}; let mapDrag = null;
 function renderFlow(d){
-  const svg = $("#flow"), m = state.flowMetric, M = d.map;
-  const val = o => m === "cost" ? o.cost : o.requests;
-  if (!M || !M.nodes.some(n => val(n) > 0 || n.requests > 0)) { svg.setAttribute("height", 80); svg.innerHTML = `<text x="20" y="40" class="sub">no traffic in this window</text>`; $("#mapnote").textContent = ""; return; }
-  const cols = [0,1,2,3].map(c => M.nodes.filter(n => n.col === c).sort((a,b) => val(b) - val(a) || b.requests - a.requests));
-  const W = Math.max(960, svg.parentElement.clientWidth), BW = 200, BH = 46, GAP = 12, TOP = 30;
-  const xs = [0,1,2,3].map(i => 8 + i * ((W - 16 - BW) / 3));
-  const maxN = Math.max(...cols.map(c => c.length));
-  const H = TOP + maxN * (BH + GAP) + 10;
-  const pos = new Map();
-  cols.forEach((c, ci) => { const used = c.length * (BH + GAP), off = (maxN * (BH + GAP) - used) / 2; c.forEach((n, i) => pos.set(n.id, {x: xs[ci], y: TOP + off + i * (BH + GAP), n, o: 0, i: 0})); });
-  const maxV = Math.max(...M.edges.map(val), 1);
-  const lw = e => Math.max(1.5, Math.sqrt(val(e) / maxV) * 16);
-  svg.setAttribute("viewBox", `0 0 ${W} ${H}`); svg.setAttribute("height", H);
-  const links = [...M.edges].sort((a,b) => val(b) - val(a)).map(e => {
-    const s = pos.get(e.from), t = pos.get(e.to); if (!s || !t) return "";
-    const w = lw(e), x1 = s.x + BW, x2 = t.x, y1 = s.y + BH / 2, y2 = t.y + BH / 2, c = (x2 - x1) * .5;
-    const bad = e.requests ? e.failures / e.requests : 0;
-    const color = !e.requests ? "#64748b" : bad >= .05 ? "#dc2626" : e.fallbacks / e.requests >= .1 ? "#d97706" : "#64748b";
-    const tip = `${s.n.label} → ${t.n.label}: ${int(e.requests)} calls, ${money(e.cost)}${e.failures ? `, ${e.failures} failed` : ""}${e.fallbacks ? `, ${e.fallbacks} via fallback` : ""}${e.requests ? "" : " (configured, no traffic)"}`;
-    return `<path class="link" data-from="${esc(e.from)}" data-to="${esc(e.to)}" d="M${x1},${y1} C${x1+c},${y1} ${x2-c},${y2} ${x2},${y2}" stroke="${color}" stroke-width="${w}" stroke-opacity="${e.requests ? .55 : .5}" ${e.requests ? "" : 'stroke-dasharray="4 4"'}><title>${esc(tip)}</title></path>`;
-  }).join("");
-  const nodes = [...pos.values()].map(({x, y, n}) => {
-    const fail = n.requests ? n.failures / n.requests : 0;
-    const edge = n.col === 2 ? (PROT_COLOR[n.protection] || "#94a3b8") : n.col === 0 ? "#34d399" : "#475569";
-    const lab = n.col === 3 ? short(n.label) : n.label, sub = `${int(n.requests)} calls · ${money(n.cost)}${fail >= .05 ? " · " + Math.round(fail * 100) + "% fail" : ""}`;
-    const dash = n.col === 2 && n.shared ? ' stroke-dasharray="5 3"' : "";
-    const tag = n.col === 2 ? (n.missing ? " ⚠ no such route" : n.local ? " · local" : "") : "";
-    return `<g class="node" data-id="${esc(n.id)}" opacity="${n.requests ? 1 : .6}"><rect x="${x}" y="${y}" width="${BW}" height="${BH}" rx="7" fill="#0f172a" stroke="${fail >= .05 ? "#dc2626" : edge}" stroke-width="${n.col === 2 ? 2 : 1.2}"${dash}/>
-      <text x="${x + 10}" y="${y + 19}">${esc(lab.length > 22 ? lab.slice(0, 21) + "…" : lab)}</text>
-      <text class="sub" x="${x + 10}" y="${y + 36}">${esc((sub + tag).slice(0, 32))}</text><title>${esc(n.label)} — ${esc(sub)}${esc(tag)}</title></g>`;
-  }).join("");
-  const heads = (M.columns || []).map((t, i) => `<text class="colhead" x="${xs[i]}" y="16">${t.toUpperCase()}</text>`).join("");
-  svg.innerHTML = heads + links + nodes;
+  const map = state.flowView !== "sankey";
+  $$("#flowview button").forEach(x => x.setAttribute("aria-pressed", x.dataset.v === (map ? "map" : "sankey")));
+  $("#flowhelp").textContent = map ? "program → agent → route → the model that actually answered. Drag boxes to rearrange, click one for details, hover to trace its path. Line thickness = traffic." : "Classic view: callers → tiers → the model that served. Hover or click a node to isolate its routes.";
+  $$(".maponly").forEach(x => x.style.display = map ? "" : "none"); $$(".sankonly").forEach(x => x.style.display = map ? "none" : "");
+  if (!map) { $("#mapdetail").innerHTML = ""; $("#mapnote").textContent = ""; return renderSankey(d); }
+  renderMap(d);
+}
+/* generic node graph: drag to move (positions remembered), click to select, hover to trace */
+function drawGraph(o){
+  const {svg, val} = o, {BW, BH, GAP, TOP} = MAP, ncol = o.columns.length;
+  const store = state[o.store] = state[o.store] || {};
+  const cols = o.columns.map((_, c) => o.nodes.filter(n => n.col === c).sort((a,b) => val(b) - val(a) || b.requests - a.requests));
+  const W = Math.max(960, svg.parentElement.clientWidth), xs = cols.map((_, i) => 8 + i * ((W - 16 - BW) / (ncol - 1)));
+  const maxN = Math.max(...cols.map(c => c.length)), H = TOP + maxN * (BH + GAP) + 10, pos = new Map();
+  cols.forEach((c, ci) => { const off = (maxN * (BH + GAP) - c.length * (BH + GAP)) / 2; c.forEach((n, i) => { const s = store[n.id]; pos.set(n.id, {x: s ? s.x : xs[ci], y: s ? s.y : TOP + off + i * (BH + GAP), n}); }); });
+  const maxV = Math.max(...o.edges.map(val), 1), lw = e => Math.max(1.5, Math.sqrt(val(e) / maxV) * 16);
+  const H2 = Math.max(H, ...[...pos.values()].map(p => p.y + BH + 14));
+  svg.setAttribute("viewBox", `0 0 ${W} ${H2}`); svg.setAttribute("height", H2);
+  const path = e => { const s = pos.get(e.from), t = pos.get(e.to), x1 = s.x + BW, x2 = t.x, y1 = s.y + BH / 2, y2 = t.y + BH / 2, c = Math.max(40, Math.abs(x2 - x1) * .5); return `M${x1},${y1} C${x1+c},${y1} ${x2-c},${y2} ${x2},${y2}`; };
+  const links = [...o.edges].sort((a,b) => val(b) - val(a)).filter(e => pos.has(e.from) && pos.has(e.to)).map(e => {
+    const st = o.edgeStyle(e);
+    return `<path class="link" data-from="${esc(e.from)}" data-to="${esc(e.to)}" d="${path(e)}" stroke="${st.color}" stroke-width="${lw(e)}" stroke-opacity="${e.requests ? .55 : .5}" ${e.requests ? "" : 'stroke-dasharray="4 4"'}><title>${esc(o.edgeTip(e, pos))}</title></path>`; }).join("");
+  const sel = state[o.selKey];
+  const nodes = [...pos.values()].map(({x, y, n}) => { const s = o.nodeStyle(n);
+    return `<g class="node mapnode" data-id="${esc(n.id)}" transform="translate(${x},${y})" opacity="${s.opacity ?? 1}" style="cursor:grab"><rect width="${BW}" height="${BH}" rx="7" fill="#0f172a" stroke="${s.stroke}" stroke-width="${sel === n.id ? 3 : s.sw || 1.2}"${s.dash ? ' stroke-dasharray="5 3"' : ""}/>
+      <text x="10" y="19">${esc(s.label.length > 24 ? s.label.slice(0, 23) + "…" : s.label)}</text><text class="sub" x="10" y="36">${esc(s.sub.slice(0, 32))}</text><title>${esc(s.label)} — ${esc(s.sub)}</title></g>`; }).join("");
+  svg.innerHTML = o.columns.map((t, i) => `<text class="colhead" x="${xs[i]}" y="16">${t.toUpperCase()}</text>`).join("") + links + nodes;
+  const keepFor = id => { const keep = new Set([id]); if (!id) return keep; const c0 = pos.get(id).n.col; let grew = true;
+    while (grew) { grew = false; o.edges.forEach(e => { const f = pos.get(e.from), t = pos.get(e.to); if (!f || !t) return;
+      if ((keep.has(e.from) && t.n.col > c0 && f.n.col >= c0) || (keep.has(e.to) && f.n.col < c0 && t.n.col <= c0)) { if (!keep.has(e.from) || !keep.has(e.to)) { keep.add(e.from); keep.add(e.to); grew = true; } } }); }
+    return keep; };
+  const apply = id => { svg.classList.toggle("focus", !!id); const keep = keepFor(id);
+    $$(".link", svg).forEach(p => p.classList.toggle("on", !id || (keep.has(p.dataset.from) && keep.has(p.dataset.to))));
+    $$(".node", svg).forEach(g => g.classList.toggle("on", !id || keep.has(g.dataset.id))); };
+  const toSvg = ev => { const r = svg.getBoundingClientRect(), vb = svg.viewBox.baseVal; return {x: (ev.clientX - r.left) * vb.width / r.width, y: (ev.clientY - r.top) * vb.height / r.height}; };
+  $$(".mapnode", svg).forEach(g => {
+    g.onpointerenter = () => { if (!mapDrag && !state[o.selKey]) apply(g.dataset.id); };
+    g.onpointerleave = () => { if (!mapDrag && !state[o.selKey]) apply(null); };
+    g.onpointerdown = ev => { ev.preventDefault(); const id = g.dataset.id, p = pos.get(id), s = toSvg(ev); mapDrag = {id, g, dx: s.x - p.x, dy: s.y - p.y, sx: ev.clientX, sy: ev.clientY, moved: false}; g.style.cursor = "grabbing"; };
+  });
+  window.onpointermove = ev => { if (!mapDrag) return; const dr = mapDrag;
+    if (!dr.moved && Math.hypot(ev.clientX - dr.sx, ev.clientY - dr.sy) < 4) return; dr.moved = true;
+    const s = toSvg(ev), p = pos.get(dr.id); p.x = Math.max(0, Math.min(W - BW, s.x - dr.dx)); p.y = Math.max(0, Math.min(H2 - BH, s.y - dr.dy));
+    dr.g.setAttribute("transform", `translate(${p.x},${p.y})`);
+    $$(".link", svg).forEach(l => { if (l.dataset.from === dr.id || l.dataset.to === dr.id) l.setAttribute("d", path({from: l.dataset.from, to: l.dataset.to})); }); };
+  window.onpointerup = () => { const dr = mapDrag; if (!dr) return; mapDrag = null; dr.g.style.cursor = "grab";
+    if (dr.moved) { const p = pos.get(dr.id); store[dr.id] = {x: Math.round(p.x), y: Math.round(p.y)}; try { localStorage.setItem(o.store, JSON.stringify(store)); } catch(e){} return; }
+    state[o.selKey] = state[o.selKey] === dr.id ? null : dr.id; o.redraw(); };
+  const cur = sel && pos.has(sel) ? sel : null; apply(cur);
+  o.detailEl.innerHTML = cur ? o.detail(pos.get(cur).n, pos) : `<div class="sub" style="margin-top:10px">${o.hint}</div>`;
+}
+function edgeLists(edges, id, pos, label){
+  const nm = x => pos.get(x)?.n.label ?? x, ins = edges.filter(e => e.to === id && e.requests).sort((a,b) => b.requests - a.requests), outs = edges.filter(e => e.from === id && e.requests).sort((a,b) => b.requests - a.requests);
+  const list = (t, es, key) => es.length ? `<div><b>${t}</b><br>${es.slice(0, 8).map(e => `${esc(nm(e[key]))} <span class="muted">${label(e)}</span>`).join("<br>")}</div>` : "";
+  return `<div style="display:flex;gap:32px;flex-wrap:wrap;margin-top:10px;font-size:12px">${list("Receives from", ins, "from")}${list("Sends to", outs, "to")}</div>`;
+}
+function renderMap(d){
+  const svg = $("#flow"), M = d.map, m = state.flowMetric, val = o => m === "cost" ? o.cost : o.requests;
+  if (!M || !M.nodes.some(n => n.requests > 0)) { svg.setAttribute("height", 80); svg.innerHTML = `<text x="20" y="40" class="sub">no traffic in this window</text>`; $("#mapnote").textContent = ""; $("#mapdetail").innerHTML = ""; return; }
+  drawGraph({svg, val, nodes: M.nodes, edges: M.edges, columns: M.columns || ["Programs","Agents","Routes","Models"], store: "mapPos", selKey: "mapSel", detailEl: $("#mapdetail"), redraw: () => renderMap(state.data),
+    hint: "Click a box to see its numbers and jump to where you can change it.",
+    nodeStyle: n => { const fail = n.requests ? n.failures / n.requests : 0, edge = n.col === 2 ? (PROT_COLOR[n.protection] || "#94a3b8") : n.col === 0 ? "#34d399" : "#475569";
+      return {stroke: fail >= .05 ? "#dc2626" : edge, sw: n.col === 2 ? 2 : 1.2, dash: n.col === 2 && n.shared, opacity: n.requests ? 1 : .6, label: n.col === 3 ? short(n.label) : n.label,
+        sub: `${int(n.requests)} calls · ${money(n.cost)}${fail >= .05 ? " · " + Math.round(fail * 100) + "% fail" : ""}${n.col === 2 ? (n.missing ? " ⚠ no such route" : n.local ? " · local" : "") : ""}`}; },
+    edgeStyle: e => { const bad = e.requests ? e.failures / e.requests : 0; return {color: !e.requests ? "#64748b" : bad >= .05 ? "#dc2626" : e.fallbacks / e.requests >= .1 ? "#d97706" : "#64748b"}; },
+    edgeTip: (e, pos) => `${pos.get(e.from).n.label} → ${pos.get(e.to).n.label}: ${int(e.requests)} calls, ${money(e.cost)}${e.failures ? `, ${e.failures} failed` : ""}${e.fallbacks ? `, ${e.fallbacks} via fallback` : ""}${e.requests ? "" : " (configured, no traffic)"}`,
+    detail: (n, pos) => { const fail = n.requests ? Math.round(n.failures * 100 / n.requests) : 0, fb = n.requests ? Math.round(n.fallbacks * 100 / n.requests) : 0, kind = ["Program", "Agent", n.shared ? "Shared tier" : "Route", "Model"][n.col];
+      const go = n.col === 1 || (n.col === 2 && !n.shared) ? `<button class="btn sm" data-go="controls" data-card="${esc(n.label)}">Edit this route</button> <button class="btn sm" data-go="advisor">Advisor</button>`
+        : n.col === 2 ? `<button class="btn sm" data-go="controls" data-card="${esc(n.label)}">Edit this tier</button>` : n.col === 3 ? `<button class="btn sm" data-go="models">Models &amp; Tiers</button>` : "";
+      return `<div class="panel" style="margin-top:12px"><div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap"><div><span class="label">${kind}</span> <b class="mono">${esc(n.label)}</b>
+        <div class="sub">${int(n.requests)} calls · ${money(n.cost)} · ${fail}% failed · ${fb}% via fallback${n.col === 2 ? " · privacy: " + esc(n.protection || "unknown") : ""}</div></div><div>${go} <button class="btn sm" data-go="close">Close</button></div></div>${edgeLists(M.edges, n.id, pos, e => `${int(e.requests)} · ${money(e.cost)}`)}</div>`; }});
   const un = M.nodes.filter(n => n.col === 0 && n.label === "Unassigned" && n.requests);
   $("#mapnote").textContent = un.length ? "Agents under “Unassigned” have no program set. Name one in an agent route's card (Controls tab) to group it." : "";
+}
+document.addEventListener("click", e => {
+  const b = e.target.closest("#mapdetail [data-go], #egdetail [data-go]"); if (!b) return; const g = b.dataset.go;
+  if (g === "close") { state.mapSel = null; state.egSel = null; return state.tab === "egress" ? renderEgress() : render(); }
+  setTab(g);
+  if (g === "controls" && b.dataset.card) setTimeout(() => { const c = document.querySelector(`[data-card="${CSS.escape(b.dataset.card)}"]`); if (c) { c.scrollIntoView({block: "center"}); c.style.outline = "2px solid var(--ok)"; setTimeout(() => c.style.outline = "", 2500); } }, 500);
+});
+$("#flowview").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; state.flowView = b.dataset.v; save(); render(); });
+document.addEventListener("click", e => { if (e.target.id !== "maplayout") return; e.preventDefault(); state.mapPos = {}; try { localStorage.removeItem("mapPos"); } catch(x){} render(); });
+
+/* ---------- classic flow (sankey-style) ---------- */
+function renderSankey(d){
+  const svg = $("#flow"), m = state.flowMetric, F = d.flow;
+  const val = o => m === "cost" ? o.cost : o.requests;
+  const cols = [["caller",["caller","synthetic","unknown"]], ["tier",["tier"]], ["model",["model"]]];
+  const byCol = cols.map(([,kinds]) => F.nodes.filter(n => kinds.includes(n.kind)));
+  const nodeIds = new Set(F.nodes.map(n => n.id));
+  const edges = F.edges.filter(e => nodeIds.has(e.from) && nodeIds.has(e.to));
+  if (!F.nodes.some(n => val(n) > 0)) { svg.innerHTML = ""; svg.setAttribute("height", 80); svg.innerHTML = `<text x="20" y="40" class="sub">no traffic in this window</text>`; return; }
+  const W = Math.max(900, svg.parentElement.clientWidth), colW = 150, padX = 150, H0 = 520;
+  const xs = [padX, (W - colW) / 2, W - colW - padX + 40].map(x => Math.max(10, x));
+  const GAP = 8, MINH = 16;
+  byCol.forEach(c => c.sort((a,b) => val(b) - val(a) || b.requests - a.requests));
+  const through = new Map();
+  edges.forEach(e => { through.set(e.from, (through.get(e.from) || 0) + val(e)); through.set(e.to, (through.get(e.to) || 0) + 0); });
+  const inSum = new Map(), outSum = new Map();
+  edges.forEach(e => { outSum.set(e.from, (outSum.get(e.from)||0) + val(e)); inSum.set(e.to, (inSum.get(e.to)||0) + val(e)); });
+  const nv = n => Math.max(inSum.get(n.id)||0, outSum.get(n.id)||0, val(n));
+  const scale = Math.min(...byCol.map(c => { const tot = c.reduce((s,n) => s + nv(n), 0) || 1; return (H0 - 40 - GAP * c.length - MINH * c.length * 0) / tot; }));
+  const pos = new Map(); let maxH = 0;
+  byCol.forEach((c, ci) => { let y = 28; c.forEach(n => { const h = Math.max(MINH, nv(n) * scale); pos.set(n.id, {x:xs[ci], y, h, in:0, out:0, n}); y += h + GAP; }); maxH = Math.max(maxH, y); });
+  svg.setAttribute("viewBox", `0 0 ${W} ${maxH + 16}`); svg.setAttribute("height", maxH + 16);
+  const links = [...edges].sort((a,b) => val(b) - val(a)).map(e => {
+    const s = pos.get(e.from), t = pos.get(e.to); if (!s || !t) return "";
+    const v = val(e), w = Math.max(v > 0 ? 1.5 : 1, v * scale);
+    const sy = s.y + s.out + w/2, ty = t.y + t.in + w/2; s.out += v > 0 ? w : 0; t.in += v > 0 ? w : 0;
+    const x1 = s.x + colW, x2 = t.x, c = (x2 - x1) * .5;
+    const bad = e.requests ? e.failures / e.requests : 0, color = v === 0 ? "#64748b" : bad >= .05 ? "#dc2626" : (e.requests && e.fallbacks / e.requests >= .1) ? "#d97706" : "#475569";
+    const tip = `${s.n.label} → ${t.n.label}: ${int(e.requests)} calls, ${money(e.cost)}${e.failures ? `, ${e.failures} failed` : ""}${e.fallbacks ? `, ${e.fallbacks} via fallback` : ""}${e.p95_ms ? `, p95 ${ms(e.p95_ms)}` : ""}${e.declared && v === 0 ? " (configured, no traffic)" : ""}`;
+    return `<path class="link" data-from="${esc(e.from)}" data-to="${esc(e.to)}" d="M${x1},${sy} C${x1+c},${sy} ${x2-c},${ty} ${x2},${ty}" stroke="${color}" stroke-width="${w}" stroke-opacity="${v === 0 ? .55 : .5}" ${v === 0 ? 'stroke-dasharray="4 4"' : ""}><title>${esc(tip)}</title></path>`;
+  }).join("");
+  const nodes = [...pos.values()].map(({x,y,h,n}) => {
+    const fail = n.requests ? n.failures / n.requests : 0;
+    const fill = n.kind === "unknown" ? "#d97706" : n.kind === "synthetic" ? "#64748b" : n.kind === "caller" ? "#34d399" : n.kind === "tier" ? "#94a3b8" : n.label.endsWith(":free") ? "#34d399" : "#cbd5e1";
+    const flag = n.off_config || n.off_chain ? " ⚠" : "";
+    const sub = `${int(n.requests)} calls · ${money(n.cost)}${fail >= .05 ? " · " + Math.round(fail*100) + "% fail" : ""}`;
+    const lab = (n.kind === "model" ? short(n.label) : n.label) + flag;
+    return `<g class="node" data-id="${esc(n.id)}" opacity="${n.requests || n.kind === "tier" ? 1 : .55}"><rect x="${x}" y="${y}" width="6" height="${h}" fill="${fail >= .05 ? "#dc2626" : fill}"/>
+      <text x="${x+14}" y="${y + Math.min(h/2, 12) + (h < 30 ? 3 : 0)}">${esc(lab.length > 26 ? lab.slice(0,25) + "…" : lab)}</text>
+      ${h >= 30 ? `<text class="sub" x="${x+14}" y="${y + 27}">${esc(sub)}</text>` : ""}<title>${esc(n.label)} — ${esc(sub)}</title></g>`;
+  }).join("");
+  const heads = ["CALLERS","TIERS","SERVED BY"].map((t,i) => `<text class="colhead" x="${xs[i]}" y="14">${t}</text>`).join("");
+  svg.innerHTML = heads + links + nodes;
   const apply = id => {
     state.flowFocus = id; svg.classList.toggle("focus", !!id);
     const keep = new Set(id ? [id] : []);
-    if (id) { // walk both directions so the whole path stays lit
-      let grew = true; while (grew) { grew = false; $$(".link", svg).forEach(p => {
-        const f = p.dataset.from, t = p.dataset.to, cf = pos.get(f).n.col, ct = pos.get(t).n.col, c0 = pos.get(id).n.col;
-        if ((keep.has(f) && ct > c0 && cf >= c0) || (keep.has(t) && cf < c0 && ct <= c0)) { if (!keep.has(f) || !keep.has(t)) { keep.add(f); keep.add(t); grew = true; } }
-      }); }
-    }
-    $$(".link", svg).forEach(p => p.classList.toggle("on", !id || (keep.has(p.dataset.from) && keep.has(p.dataset.to))));
+    $$(".link", svg).forEach(p => { const on = id && (p.dataset.from === id || p.dataset.to === id); p.classList.toggle("on", !!on); if (on) { keep.add(p.dataset.from); keep.add(p.dataset.to); } });
+    // second hop: show the full route through the focused node
+    if (id) $$(".link", svg).forEach(p => { if (keep.has(p.dataset.from) && (p.dataset.from === id || p.dataset.to === id) === false && (keep.has(p.dataset.to))) p.classList.add("on"); });
     $$(".node", svg).forEach(g => g.classList.toggle("on", !id || keep.has(g.dataset.id)));
   };
   $$(".node", svg).forEach(g => { g.onmouseenter = () => { if (!pinned) apply(g.dataset.id); }; g.onmouseleave = () => { if (!pinned) apply(null); }; g.onclick = () => { pinned = pinned === g.dataset.id ? null : g.dataset.id; apply(pinned); }; });
-  apply(pinned && pos.has(pinned) ? pinned : null);
+  apply(pinned);
 }
 let pinned = null;
 $("#flowmetric").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; state.flowMetric = b.dataset.m; $$("#flowmetric button").forEach(x => x.setAttribute("aria-pressed", x === b)); save(); render(); });
@@ -925,7 +1032,37 @@ function renderEgress(){
   $("#eg-blocks").innerHTML = d.blocks.length ? `<div class="tw"><table><thead><tr><th>Rule</th><th>Program</th><th>Blocks</th><th></th></tr></thead><tbody>${d.blocks.map(b => `<tr><td class="txt strong mono" style="font-size:11.5px">${esc(b.name.replace("ModelRouter-Block-", ""))} ${b.enabled ? "" : chip("idle","disabled")}</td><td class="txt muted mono" style="font-size:11px">${esc(b.program)}</td><td class="muted mono" style="font-size:11px">${esc(b.remote.length && b.remote[0] !== "Any" ? b.remote.join(", ") : "all addresses")}</td><td class="r"><button class="btn sm" data-unblock="${esc(b.name)}">Unblock…</button></td></tr>`).join("")}</tbody></table></div><div class="tools" style="margin-top:8px"><button class="btn sm" id="eg-unblock-all">Remove all blocks…</button></div>` : `<div class="empty">no blocks — nothing is being stopped by this tool</div>`;
   $("#eg-unres").innerHTML = d.unresolved.length ? `<div class="tw"><table><thead><tr><th>Program</th><th class="r">Connections</th><th>Example addresses</th></tr></thead><tbody>${d.unresolved.map(u => `<tr><td class="txt strong mono">${esc(u.proc)}</td><td class="r">${int(u.connections)}</td><td class="muted mono">${esc(u.sample_ips.join(", "))}</td></tr>`).join("")}</tbody></table></div>` : `<div class="empty">none right now</div>`;
   $("#eg-caveat").textContent = d.caveat;
+  renderEgressMap(d);
 }
+function renderEgressMap(d){
+  const map = state.egView !== "tables";
+  $$("#egview button").forEach(x => x.setAttribute("aria-pressed", x.dataset.v === (map ? "map" : "tables")));
+  $$(".egmap").forEach(x => x.style.display = map ? "" : "none"); $$(".egtables").forEach(x => x.style.display = map ? "none" : "");
+  if (!map) return;
+  const svg = $("#egflow"), nodes = [], edges = [], routerId = "x:router", gap = new Set((d.could_route || []).map(g => g.proc + "|" + g.provider));
+  d.programs.forEach(p => nodes.push({id: "p:" + p.proc, col: 0, label: p.proc, requests: p.connections, cost: 0, failures: 0, direct: p.direct, via: p.via_router, seconds: p.seconds, last: p.last}));
+  nodes.push({id: routerId, col: 1, label: "Your router", requests: d.totals.via_router, cost: 0, failures: 0, router: true});
+  d.providers.forEach(p => nodes.push({id: "v:" + p.provider, col: 2, label: p.provider, requests: p.connections, cost: 0, failures: 0, direct: p.direct, via: p.via_router, seconds: p.seconds, shared: p.shared}));
+  const viaTo = {};
+  d.programs.forEach(p => p.links.forEach(l => {
+    if (l.via_router) { edges.push({from: "p:" + p.proc, to: routerId, requests: l.via_router, cost: 0, failures: 0, fallbacks: 0}); viaTo[l.name] = (viaTo[l.name] || 0) + l.via_router; }
+    if (l.direct) edges.push({from: "p:" + p.proc, to: "v:" + l.name, requests: l.direct, cost: 0, failures: 0, fallbacks: 0, direct: true, skips: gap.has(p.proc + "|" + l.name)});
+  }));
+  Object.entries(viaTo).forEach(([prov, n]) => edges.push({from: routerId, to: "v:" + prov, requests: n, cost: 0, failures: 0, fallbacks: 0}));
+  if (!nodes.some(n => n.col === 0)) { svg.setAttribute("height", 80); svg.innerHTML = `<text x="20" y="40" class="sub">no AI connections seen in this window</text>`; $("#egdetail").innerHTML = ""; return; }
+  drawGraph({svg, val: e => e.requests, nodes, edges, columns: ["Programs", "Router", "AI providers"], store: "egPos", selKey: "egSel", detailEl: $("#egdetail"), redraw: () => renderEgressMap(state.egress),
+    hint: "Click a program or provider for its connections, and to block a program.",
+    nodeStyle: n => ({stroke: n.router ? "#34d399" : n.direct ? "#d97706" : "#475569", sw: n.router ? 2 : 1.2, dash: false, opacity: n.requests || n.router ? 1 : .6, label: n.label,
+      sub: n.router ? `${int(n.requests)} connections via router` : `${int(n.requests)} conn · ${dur(n.seconds)}${n.direct ? " · " + n.direct + " direct" : ""}`}),
+    edgeStyle: e => ({color: e.skips ? "#dc2626" : e.direct ? "#d97706" : "#059669"}),
+    edgeTip: (e, pos) => `${pos.get(e.from).n.label} → ${pos.get(e.to).n.label}: ${int(e.requests)} connections${e.skips ? " (skips your router, which could carry this)" : e.direct ? " (direct, not via router)" : ""}`,
+    detail: (n, pos) => { const nm = n.label;
+      const act = n.col === 0 && n.direct ? `<button class="btn sm" data-bp="${esc(n.label)}">Block…</button>` : "";
+      const body = n.router ? `<div class="sub">Calls that came through your router, tracked in Live, Callers and Risk.</div>` : edgeLists(edges, n.id, pos, e => `${int(e.requests)} conn${e.skips ? " · could use router" : e.direct ? " · direct" : " · via router"}`);
+      return `<div class="panel" style="margin-top:12px"><div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap"><div><span class="label">${["Program","Router","Provider"][n.col]}</span> <b class="mono">${esc(nm)}</b>
+        <div class="sub">${int(n.requests)} connections${n.seconds != null ? " · " + dur(n.seconds) + " connected" : ""}${n.direct ? " · " + n.direct + " direct (no tracking)" : ""}</div></div><div>${act} <button class="btn sm" data-go="close">Close</button></div></div>${body}</div>`; }});
+}
+$("#egview").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; state.egView = b.dataset.v; save(); if (state.egress) renderEgressMap(state.egress); });
 
 
 /* egress actions: end a process, or download a firewall script (nothing runs from the page) */
