@@ -184,6 +184,7 @@ footer{color:var(--mut);font:11px var(--mono);letter-spacing:.04em;padding:0 24p
     <button role="tab" data-tab="flow" aria-selected="false">Flow</button>
     <button role="tab" data-tab="risk" aria-selected="false">Risk</button>
     <button role="tab" data-tab="controls" aria-selected="false">Controls</button>
+    <button role="tab" data-tab="canary" aria-selected="false">Canary</button>
     <button role="tab" data-tab="egress" aria-selected="false">Egress</button>
     <button role="tab" data-tab="inbound" aria-selected="false">Inbound</button>
   </nav>
@@ -248,6 +249,16 @@ footer{color:var(--mut);font:11px var(--mono);letter-spacing:.04em;padding:0 24p
     <div class="cgrid" id="ctl-tiers"></div>
     <div id="ctl-picker"></div>
     <div class="panel"><h2>Recent changes</h2><div class="sub">undo restores the config as it was before that change (the current file is backed up first)</div><div id="ctl-audit"></div></div>
+  </section>
+  <section data-pane="canary" hidden>
+    <div class="panel">
+      <h2>Canary quality suite</h2>
+      <div class="sub">Fixed test tasks with answers checked by code (extraction, classification, reasoning, coding, formatting, tool calls, long-context recall). The prompts are written for this suite, so none of your own data is sent. Cloud tiers cost real money (a few cents); local tiers are free. Runs show up as benchmark traffic, not as a caller.</div>
+      <div id="cn-pick" style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin:12px 0"></div>
+      <div style="display:flex;gap:10px;align-items:center"><button class="btn" id="cn-run">Run canary</button><span class="sub" id="cn-status"></span></div>
+    </div>
+    <div class="panel" style="margin-top:16px"><h2>Results by tier</h2><div class="sub">latest result per task. <b>Points per dollar</b> is the score divided by what the run cost; local tiers are free, so it does not apply.</div><div class="tw"><table id="cn-summary"></table></div></div>
+    <div class="panel" style="margin-top:16px"><h2>Task by task</h2><div class="sub">1.0 = passed. Hover a cell for what the check saw. A long-context failure on a local model usually means Ollama truncated the prompt.</div><div class="tw" id="cn-matrix"></div></div>
   </section>
   <section data-pane="egress" hidden>
     <div id="eg-status"></div>
@@ -321,14 +332,14 @@ $("#windows").addEventListener("click", e => { const b = e.target.closest("butto
 $("#synth").addEventListener("click", () => { state.synth = !state.synth; save(); syncControls(); load(); });
 $("#pause").addEventListener("click", () => { state.paused = !state.paused; syncControls(); if (!state.paused) load(); });
 $("#tabs").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; setTab(b.dataset.tab); });
-function setTab(t){ state.tab = t; save(); syncControls(); render(); if (t === "risk") loadRisk(); if (t === "controls") loadCtl(); if (t === "egress") loadEgress(); if (t === "inbound") loadInbound(); }
+function setTab(t){ state.tab = t; save(); syncControls(); render(); if (t === "risk") loadRisk(); if (t === "controls") loadCtl(); if (t === "egress") loadEgress(); if (t === "inbound") loadInbound(); if (t === "canary") loadCanary(); }
 function syncControls(){
   $$("#windows button").forEach(b => b.setAttribute("aria-pressed", b.dataset.w === state.window));
   $("#synth").setAttribute("aria-pressed", state.synth);
   $("#pause").setAttribute("aria-pressed", state.paused); $("#pause").textContent = state.paused ? "Resume" : "Pause";
   $$("#tabs button").forEach(b => b.setAttribute("aria-selected", b.dataset.tab === state.tab));
   $$("[data-pane]").forEach(p => p.hidden = p.dataset.pane !== state.tab);
-  const wide = ["risk","controls","egress","inbound"].includes(state.tab); $("#kpis").hidden = wide; $("#attrnote").hidden = wide;
+  const wide = ["risk","controls","canary","egress","inbound"].includes(state.tab); $("#kpis").hidden = wide; $("#attrnote").hidden = wide;
   const live = $("#live"); live.className = "live" + (state.paused ? " paused" : state.failures ? " err" : "");
 }
 
@@ -978,9 +989,55 @@ function renderInbound(){
   $("#in-caveat").textContent = d.caveat;
 }
 
+/* ---------- canary tab ---------- */
+state.sort.csum = ["score", -1]; state.canary = null; state.cnPicked = null;
+let cnTimer = null;
+async function loadCanary(){
+  try {
+    const r = await fetch("/api/control/canary", {cache:"no-store"}); const j = await r.json();
+    if (!r.ok) throw new Error(j.message || j.error || r.status);
+    state.canary = j; renderCanary();
+    clearTimeout(cnTimer); if (j.status.running) cnTimer = setTimeout(() => { if (state.tab === "canary") loadCanary(); }, 2500);
+  } catch (e) { $("#cn-status").textContent = "Could not load canary results: " + e.message; }
+}
+const scoreChip = s => s == null ? `<span class="muted">—</span>` : chip(s >= 0.99 ? "ok" : s > 0 ? "warn" : "bad", s.toFixed(2));
+function renderCanary(){
+  const d = state.canary; if (!d) return; const st = d.status, names = Object.keys(d.tiers);
+  if (!state.cnPicked) state.cnPicked = new Set(names.filter(n => n !== "free"));
+  $("#cn-pick").innerHTML = names.map(n => `<label class="chk"><input type="checkbox" data-cn="${esc(n)}" ${state.cnPicked.has(n) ? "checked" : ""} ${st.running ? "disabled" : ""}> <span class="mono">${esc(n)}</span> ${d.tiers[n].provider === "ollama" ? chip("ok","local") : chip("idle","cloud")}</label>`).join("");
+  $("#cn-run").disabled = !!st.running || !state.cnPicked.size;
+  $("#cn-status").textContent = st.running ? `Running ${st.done}/${st.total} · ${st.current || ""}` : st.error ? "Last run stopped: " + st.error : st.finished ? `Last run finished ${ago(st.finished)}` : "";
+  const sm = d.summary;
+  table($("#cn-summary"), "csum", [
+    {k:"tier", h:"Tier", txt:1, v:r=>r.tier, f:r => `<span class="strong mono">${esc(r.tier)}</span> ${d.tiers[r.tier]?.provider === "ollama" ? chip("ok","local") : ""}`},
+    {k:"score", h:"Score", r:1, v:r=>r.score, f:r => `<b>${Math.round(r.score*100)}%</b> <span class="muted">(${r.points}/${r.of})</span>`},
+    {k:"completed", h:"Tasks run", r:1, v:r=>r.completed, f:r => `${r.completed}/${r.of}` + (r.errors ? " " + chip("bad", r.errors + " errors") : "")},
+    {k:"lat", h:"Median latency", r:1, v:r=>r.median_latency_ms, f:r => r.median_latency_ms == null ? "—" : (r.median_latency_ms/1000).toFixed(1) + "s"},
+    {k:"cost", h:"Run cost", r:1, v:r=>r.cost, f:r => d.tiers[r.tier]?.provider === "ollama" ? "free" : money(r.cost)},
+    {k:"ppd", h:"Points / $", r:1, v:r=>r.points_per_dollar, f:r => r.points_per_dollar == null ? "—" : int(r.points_per_dollar)},
+    {k:"by", h:"Answered by", txt:1, v:r=>Object.keys(r.answered_by).join(","), f:r => Object.entries(r.answered_by).map(([m,n]) => `<span class="mono" style="font-size:11.5px">${esc(m)}</span> <span class="muted">×${n}</span>`).join("<br>")},
+    {k:"last", h:"Last run", v:r=>r.last_run, f:r => `<span class="muted">${r.last_run ? ago(r.last_run) : ""}</span>`},
+  ], sm.tiers);
+  if (!sm.tiers.length) { $("#cn-matrix").innerHTML = `<div class="empty">no canary results yet — pick tiers and press Run canary</div>`; return; }
+  const cols = sm.tiers.map(t => t.tier);
+  $("#cn-matrix").innerHTML = `<table><thead><tr><th>Task</th><th>Type</th>${cols.map(c => `<th class="r mono">${esc(c)}</th>`).join("")}</tr></thead><tbody>${sm.tasks.map(task => `<tr><td class="txt mono" style="font-size:12px">${esc(task.id)}</td><td class="muted">${esc(task.type)}</td>${sm.tiers.map(t => { const c = t.tasks[task.id]; return `<td class="r" title="${esc(c ? (c.detail || "") + (c.error ? " · " + c.error : "") : "not run")}">${scoreChip(c ? c.score : null)}</td>`; }).join("")}</tr>`).join("")}</tbody></table>`;
+}
+document.addEventListener("change", e => {
+  const b = e.target.closest("input[data-cn]"); if (!b || !state.cnPicked) return;
+  b.checked ? state.cnPicked.add(b.dataset.cn) : state.cnPicked.delete(b.dataset.cn); renderCanary();
+});
+document.addEventListener("click", async e => {
+  if (!e.target.closest("#cn-run")) return;
+  const d = state.canary, picked = [...state.cnPicked], cloud = picked.filter(n => d.tiers[n].provider !== "ollama");
+  if (cloud.length && !window.confirm(`This sends ${d.task_count} small test prompts to each cloud tier (${cloud.join(", ")}) and costs real money, usually a few cents per tier. Run it?`)) return;
+  const res = await api("POST", "/api/control/canary/run", {tiers: picked, confirm: cloud.length ? true : undefined});
+  if (!res.ok) { $("#cn-status").textContent = res.text; return; }
+  loadCanary();
+});
+
 /* ---------- boot ---------- */
 $$("#flowmetric button").forEach(x => x.setAttribute("aria-pressed", x.dataset.m === state.flowMetric));
-syncControls(); load(); schedule(); if (state.tab === "risk") loadRisk(); if (state.tab === "controls") loadCtl(); if (state.tab === "egress") loadEgress(); if (state.tab === "inbound") loadInbound();
+syncControls(); load(); schedule(); if (state.tab === "risk") loadRisk(); if (state.tab === "controls") loadCtl(); if (state.tab === "egress") loadEgress(); if (state.tab === "inbound") loadInbound(); if (state.tab === "canary") loadCanary();
 </script>
 </body>
 </html>

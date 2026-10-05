@@ -22,3 +22,5 @@ egress_active.json.tmp
 launcher.log
 ingress_log.jsonl
 ingress_log.jsonl.1
+
+canary_results.jsonl

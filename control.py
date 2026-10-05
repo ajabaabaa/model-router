@@ -23,6 +23,7 @@ from urllib.parse import urlparse
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
+import canary
 import catalog
 import config_store
 import copy
@@ -769,3 +770,48 @@ def control_inbound(window: str = Query("24h")) -> Any:
                 "caveat": "A listening port is not the same as reachable: Windows Firewall still decides whether other devices can "
                           "connect. Only connection metadata (program, port, remote address, duration) is recorded, never content."})
     return out
+
+
+# ---- canary quality suite ---------------------------------------------------------------------
+
+@router.get("/api/control/canary")
+def control_canary() -> Any:
+    cfg = load_router_config()
+    tiers = cfg.get("tiers") or {}
+    summary = canary.summarize(canary.read_results())
+    return {"summary": summary, "status": dict(canary.RUNNER.state),
+            "tiers": {name: {"provider": (spec or {}).get("provider", "openrouter"),
+                             "primary": (spec or {}).get("primary")} for name, spec in tiers.items()},
+            "task_count": len(canary.TASKS)}
+
+
+@router.post("/api/control/canary/run")
+async def control_canary_run(request: Request) -> Any:
+    blocked = _guard_write(request)
+    if blocked:
+        return blocked
+    try:
+        body = await request.json()
+    except ValueError:
+        body = None
+    if not isinstance(body, dict):
+        return JSONResponse({"error": "invalid_body"}, status_code=400)
+    cfg_tiers = load_router_config().get("tiers") or {}
+    chosen = body.get("tiers")
+    if not isinstance(chosen, list) or not chosen or len(chosen) > 12 or \
+            any(not isinstance(n, str) or n not in cfg_tiers for n in chosen):
+        return JSONResponse({"error": "unknown_tier", "message": "choose one or more configured tiers"}, status_code=400)
+    chosen = list(dict.fromkeys(chosen))
+    ids = body.get("tasks")
+    if ids is not None and (not isinstance(ids, list) or any(i not in canary.TASK_IDS for i in ids)):
+        return JSONResponse({"error": "unknown_task"}, status_code=400)
+    cloud = [n for n in chosen if (cfg_tiers[n] or {}).get("provider", "openrouter") != "ollama"]
+    if cloud and body.get("confirm") is not True:
+        return JSONResponse({"error": "confirm_required",
+                             "message": "This sends the test prompts to cloud models and costs real money: " + ", ".join(cloud)},
+                            status_code=409)
+    host = request.headers.get("host") or "127.0.0.1:6060"
+    if not canary.RUNNER.start(chosen, ids, url=f"http://{host}/v1/chat/completions"):
+        return JSONResponse({"error": "already_running"}, status_code=409)
+    _egress_audit("canary-run")
+    return {"started": True, "status": dict(canary.RUNNER.state)}
