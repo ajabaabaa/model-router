@@ -23,6 +23,7 @@ from urllib.parse import urlparse
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
+import advisor
 import canary
 import catalog
 import config_store
@@ -815,3 +816,40 @@ async def control_canary_run(request: Request) -> Any:
         return JSONResponse({"error": "already_running"}, status_code=409)
     _egress_audit("canary-run")
     return {"started": True, "status": dict(canary.RUNNER.state)}
+
+
+# ---- advisor ----------------------------------------------------------------------------------
+
+def _advisor_tiers() -> dict[str, dict[str, Any]] | None:
+    data = control_tiers()
+    if isinstance(data, JSONResponse):
+        return None
+    out = {}
+    for name, tier in data["tiers"].items():
+        first = next((m for m in tier["chain"] if m.get("known")), None) if tier["chain"] else None
+        out[name] = {"protection": tier["protection"], "provider": tier["provider"], "primary": tier["primary"],
+                     "price_in": first["in"] if first else None, "price_out": first["out"] if first else None}
+    return out
+
+
+@router.get("/api/control/advisor")
+def control_advisor(window: str = Query("7d")) -> Any:
+    if window not in WINDOWS:
+        return JSONResponse({"error": "unknown_window", "windows": list(WINDOWS)}, status_code=422)
+    try:
+        config, _ = config_store.read()
+        tiers = _advisor_tiers()
+        if tiers is None:
+            return JSONResponse({"error": "tiers_unavailable"}, status_code=503)
+        span, _ = WINDOWS[window]
+        now = datetime.now(timezone.utc)
+        rows = [r for r in _read(now - span if span else None) if not _is_synthetic(r)]
+        profiles = config.get("agent_profiles") if isinstance(config.get("agent_profiles"), dict) else {}
+        canary_tiers = canary.summarize(canary.read_results())["tiers"]
+        out = advisor.advise(rows, profiles, tiers, canary_tiers)
+        out.update(generated_at=_iso(now), window=window)
+        return out
+    except config_store.ConfigError as exc:
+        return _config_error(exc)
+    except Exception as exc:
+        return JSONResponse({"error": "advisor_unavailable", "cause": exc.__class__.__name__}, status_code=503)

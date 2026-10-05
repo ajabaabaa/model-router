@@ -184,6 +184,7 @@ footer{color:var(--mut);font:11px var(--mono);letter-spacing:.04em;padding:0 24p
     <button role="tab" data-tab="flow" aria-selected="false">Flow</button>
     <button role="tab" data-tab="risk" aria-selected="false">Risk</button>
     <button role="tab" data-tab="controls" aria-selected="false">Controls</button>
+    <button role="tab" data-tab="advisor" aria-selected="false">Advisor</button>
     <button role="tab" data-tab="canary" aria-selected="false">Canary</button>
     <button role="tab" data-tab="egress" aria-selected="false">Egress</button>
     <button role="tab" data-tab="inbound" aria-selected="false">Inbound</button>
@@ -249,6 +250,16 @@ footer{color:var(--mut);font:11px var(--mono);letter-spacing:.04em;padding:0 24p
     <div class="cgrid" id="ctl-tiers"></div>
     <div id="ctl-picker"></div>
     <div class="panel"><h2>Recent changes</h2><div class="sub">undo restores the config as it was before that change (the current file is backed up first)</div><div id="ctl-audit"></div></div>
+  </section>
+  <section data-pane="advisor" hidden>
+    <div class="panel">
+      <h2>Advisor</h2>
+      <div class="sub">For each agent: which tier fits its work, given its real token sizes, its data profile (privacy floor), what it needs (long context, tool calls) and the canary scores. It only suggests a switch when the evidence supports it, and never below the protection its data needs.</div>
+      <div style="display:flex;gap:6px;margin-top:10px" id="ad-window"></div>
+    </div>
+    <div class="kpis" id="ad-kpis" style="margin-top:16px"></div>
+    <div id="ad-agents"></div>
+    <div class="sub" id="ad-caveat" style="margin-top:12px"></div>
   </section>
   <section data-pane="canary" hidden>
     <div class="panel">
@@ -332,14 +343,14 @@ $("#windows").addEventListener("click", e => { const b = e.target.closest("butto
 $("#synth").addEventListener("click", () => { state.synth = !state.synth; save(); syncControls(); load(); });
 $("#pause").addEventListener("click", () => { state.paused = !state.paused; syncControls(); if (!state.paused) load(); });
 $("#tabs").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; setTab(b.dataset.tab); });
-function setTab(t){ state.tab = t; save(); syncControls(); render(); if (t === "risk") loadRisk(); if (t === "controls") loadCtl(); if (t === "egress") loadEgress(); if (t === "inbound") loadInbound(); if (t === "canary") loadCanary(); }
+function setTab(t){ state.tab = t; save(); syncControls(); render(); if (t === "risk") loadRisk(); if (t === "controls") loadCtl(); if (t === "egress") loadEgress(); if (t === "inbound") loadInbound(); if (t === "canary") loadCanary(); if (t === "advisor") loadAdvisor(); }
 function syncControls(){
   $$("#windows button").forEach(b => b.setAttribute("aria-pressed", b.dataset.w === state.window));
   $("#synth").setAttribute("aria-pressed", state.synth);
   $("#pause").setAttribute("aria-pressed", state.paused); $("#pause").textContent = state.paused ? "Resume" : "Pause";
   $$("#tabs button").forEach(b => b.setAttribute("aria-selected", b.dataset.tab === state.tab));
   $$("[data-pane]").forEach(p => p.hidden = p.dataset.pane !== state.tab);
-  const wide = ["risk","controls","canary","egress","inbound"].includes(state.tab); $("#kpis").hidden = wide; $("#attrnote").hidden = wide;
+  const wide = ["risk","controls","advisor","canary","egress","inbound"].includes(state.tab); $("#kpis").hidden = wide; $("#attrnote").hidden = wide;
   const live = $("#live"); live.className = "live" + (state.paused ? " paused" : state.failures ? " err" : "");
 }
 
@@ -989,6 +1000,40 @@ function renderInbound(){
   $("#in-caveat").textContent = d.caveat;
 }
 
+/* ---------- advisor tab ---------- */
+state.advisor = null; state.adWindow = "7d";
+const AD_ACTION = {privacy:["bad","privacy"], switch:["ok","switch"], verify:["warn","test first"], keep:["idle","keep"], wait:["idle","not enough data"]};
+async function loadAdvisor(){
+  try {
+    const r = await fetch(`/api/control/advisor?window=${state.adWindow}`, {cache:"no-store"}); const j = await r.json();
+    if (!r.ok) throw new Error(j.error || r.status);
+    state.advisor = j; renderAdvisor();
+  } catch (e) { $("#ad-agents").innerHTML = `<div class="note">Could not load the advisor: ${esc(e.message)}</div>`; }
+}
+function renderAdvisor(){
+  const d = state.advisor; if (!d) return; const t = d.totals;
+  $("#ad-window").innerHTML = ["24h","7d","all"].map(w => `<button class="btn" data-adw="${w}" aria-pressed="${w === state.adWindow}">${w}</button>`).join("");
+  $("#ad-kpis").innerHTML = [
+    {l:"Agents analysed", v:int(t.agents), cls:"", d:"real callers in this window"},
+    {l:"Ready to save", v:money(t.ready_saving_per_month) + "/mo", cls:t.ready_saving_per_month ? "good" : "", d:"switches the evidence supports"},
+    {l:"Possible, needs a test", v:money(t.unverified_saving_per_month) + "/mo", cls:t.unverified_saving_per_month ? "warn" : "", d:"run the canary on these tiers first"},
+    {l:"Privacy flags", v:int(t.privacy_flags), cls:t.privacy_flags ? "bad" : "good", d:"agents on weaker protection than their data needs"},
+  ].map(k => `<div class="kpi ${k.cls}"><span class="accent"></span><div class="label">${k.l}</div><div class="v">${k.v}</div><div class="d">${k.d}</div></div>`).join("");
+  $("#ad-agents").innerHTML = d.agents.length ? d.agents.map(a => {
+    const rec = a.recommendation, [cls, label] = AD_ACTION[rec.action] || ["idle", rec.action];
+    const opts = (a.options || []).map(o => `<tr><td class="txt"><span class="mono strong">${esc(o.tier)}</span> ${o.current ? chip("idle","now") : ""}</td><td>${protChip(o.protection)}</td><td class="r">${o.canary_score == null ? "—" : o.canary_score.toFixed(2)}</td><td class="r">${o.cost_per_month == null ? "?" : o.provider === "ollama" ? "free" : money(o.cost_per_month)}</td><td>${chip(o.verdict === "eligible" ? "ok" : o.verdict === "blocked" ? "bad" : "warn", o.verdict)}</td><td class="txt muted" style="font-size:11.5px">${esc((o.reasons || []).join("; "))}</td></tr>`).join("");
+    return `<div class="panel" style="margin-top:16px">
+      <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:baseline"><h2 style="margin:0"><span class="mono">${esc(a.agent)}</span> ${chip(cls, label)}</h2>
+        <span class="sub">${int(a.calls)} calls · ${a.per_day}/day · avg ${int(a.avg_in)} in / ${int(a.avg_out)} out · ${esc(a.shape)}</span></div>
+      <div style="margin:10px 0 4px;font-weight:600">${esc(rec.headline)} <span class="muted" style="font-weight:400;font-size:12px">· confidence ${esc(rec.confidence)}</span></div>
+      <ul class="sub" style="margin:4px 0 8px 18px">${(rec.detail || []).map(x => `<li>${esc(x)}</li>`).join("")}</ul>
+      <div class="sub">Data class <b>${esc(a.data_class)}</b> (${esc(a.profile_source)}) · minimum protection <b>${esc(a.min_protection)}</b>${(a.needs || []).length ? " · needs " + esc(a.needs.join(", ")) : ""} · now on ${Object.entries(a.tier_mix).map(([k,v]) => esc(k) + " " + Math.round(v*100) + "%").join(", ")}</div>
+      ${opts ? `<details style="margin-top:8px"><summary class="sub" style="cursor:pointer">All options</summary><div class="tw"><table><thead><tr><th>Tier</th><th>Protection</th><th class="r">Canary</th><th class="r">Est. per month</th><th>Verdict</th><th>Why</th></tr></thead><tbody>${opts}</tbody></table></div></details>` : ""}
+    </div>`; }).join("") : `<div class="panel" style="margin-top:16px"><div class="empty">no traffic in this window</div></div>`;
+  $("#ad-caveat").textContent = d.caveat;
+}
+document.addEventListener("click", e => { const b = e.target.closest("[data-adw]"); if (b) { state.adWindow = b.dataset.adw; loadAdvisor(); } });
+
 /* ---------- canary tab ---------- */
 state.sort.csum = ["score", -1]; state.canary = null; state.cnPicked = null;
 let cnTimer = null;
@@ -1037,7 +1082,7 @@ document.addEventListener("click", async e => {
 
 /* ---------- boot ---------- */
 $$("#flowmetric button").forEach(x => x.setAttribute("aria-pressed", x.dataset.m === state.flowMetric));
-syncControls(); load(); schedule(); if (state.tab === "risk") loadRisk(); if (state.tab === "controls") loadCtl(); if (state.tab === "egress") loadEgress(); if (state.tab === "inbound") loadInbound(); if (state.tab === "canary") loadCanary();
+syncControls(); load(); schedule(); if (state.tab === "risk") loadRisk(); if (state.tab === "controls") loadCtl(); if (state.tab === "egress") loadEgress(); if (state.tab === "inbound") loadInbound(); if (state.tab === "canary") loadCanary(); if (state.tab === "advisor") loadAdvisor();
 </script>
 </body>
 </html>

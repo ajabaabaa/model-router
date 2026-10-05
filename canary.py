@@ -387,13 +387,15 @@ def run_task(tier: str, task: dict[str, Any], client: httpx.Client, url: str = R
     return row
 
 
-def append_results(rows: list[dict[str, Any]], path: Path = RESULTS) -> None:
+def append_results(rows: list[dict[str, Any]], path: Path | None = None) -> None:
+    path = path or RESULTS
     with path.open("a", encoding="utf-8") as handle:
         for row in rows:
             handle.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 
-def read_results(path: Path = RESULTS) -> list[dict[str, Any]]:
+def read_results(path: Path | None = None) -> list[dict[str, Any]]:
+    path = path or RESULTS
     rows: list[dict[str, Any]] = []
     if not path.exists():
         return rows
@@ -451,7 +453,7 @@ class Runner:
         self.state: dict[str, Any] = {"running": False}
 
     def start(self, tiers: list[str], task_ids: list[str] | None = None, url: str = ROUTER_URL,
-              path: Path = RESULTS) -> bool:
+              path: Path | None = None) -> bool:
         with self._lock:
             if self.state.get("running"):
                 return False
