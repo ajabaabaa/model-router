@@ -1,0 +1,35 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Model Router – starting</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+:root{--bg:#0b1220;--fg:#e6edf7;--mu:#8fa3bf;--ok:#34d399;--wr:#fbbf24;--bd:#f87171;--cd:#111a2e}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px system-ui,sans-serif;display:grid;place-items:center;min-height:100vh}
+.box{background:var(--cd);border:1px solid #223;border-radius:12px;padding:28px 32px;width:min(460px,92vw)}
+h1{font-size:13px;letter-spacing:.12em;color:var(--mu);margin:0 0 18px;font-weight:600}
+.step{display:flex;gap:12px;align-items:center;padding:8px 0;color:var(--mu)}
+.dot{width:12px;height:12px;border-radius:50%;border:2px solid var(--mu);flex:none}
+.step.run{color:var(--fg)}.step.run .dot{border-color:var(--wr);border-top-color:transparent;animation:s 1s linear infinite}
+.step.done{color:var(--fg)}.step.done .dot{background:var(--ok);border-color:var(--ok)}
+.step.fail{color:var(--bd)}.step.fail .dot{background:var(--bd);border-color:var(--bd)}
+@keyframes s{to{transform:rotate(360deg)}}
+.note{margin-top:16px;font-size:13px;color:var(--mu);min-height:1.4em}
+</style></head><body><div class="box"><h1>MODEL ROUTER</h1><div id="steps"></div><div class="note" id="note"></div></div>
+<script>
+const BASE="http://127.0.0.1:6060";
+const STEPS=[["launch","Launcher started"],["router","Router starting (restarts if running old code)"],["health","Router answering"],["data","Loading dashboard data"]];
+const st={launch:"run",router:"wait",health:"wait",data:"wait"};
+let note="",t0=Date.now(),redirected=false;
+function draw(){document.getElementById("steps").innerHTML=STEPS.map(([k,l])=>`<div class="step ${st[k]=="wait"?"":st[k]}"><span class="dot"></span>${l}</div>`).join("");document.getElementById("note").textContent=note;}
+async function up(p){try{const r=await fetch(BASE+p,{cache:"no-store"});return r.ok;}catch(e){try{await fetch(BASE+p,{mode:"no-cors",cache:"no-store"});return "opaque";}catch(_){return false;}}}
+function loadStatus(){const s=document.createElement("script");s.src="startup-status.js?"+Date.now();s.onload=()=>{const x=window.__launcher||{};if(x.error){st.launch="fail";note=x.error;}else{st.launch="done";if(x.phase==="restarting"){st.router="run";note="Restarting the router…";}else if(x.phase==="starting"){st.router="run";note="Starting the router…";}else if(x.phase){st.router="done";}}draw();s.remove();};s.onerror=()=>s.remove();document.head.appendChild(s);}
+async function tick(){
+  loadStatus();
+  const h=await up("/health");
+  if(h){st.router="done";st.health="done";st.data="run";
+    const c=await up("/api/control/overview?window=1h");
+    if(c&&!redirected){st.data="done";redirected=true;draw();note="Ready.";document.getElementById("note").textContent=note;setTimeout(()=>location.href=BASE+"/control",600);return;}
+  } else if(st.router==="wait"&&Date.now()-t0>3000){st.router="run";}
+  if(Date.now()-t0>90000){note="Taking too long. Check C:\\dev\\openclaw-router\\router.log and launcher.log";}
+  draw();setTimeout(tick,1000);
+}
+draw();tick();
+</script></body></html>

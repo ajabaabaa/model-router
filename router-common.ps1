@@ -26,3 +26,12 @@ function Stop-Router {
         ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }
     Start-Sleep 2
 }
+
+function Log($m) {
+    try { Add-Content -Path (Join-Path $Root "launcher.log") -Value ("{0}  {1}" -f (Get-Date -Format s), $m) } catch {}
+}
+
+function Show-Msg($m) {
+    Add-Type -AssemblyName System.Windows.Forms
+    [void][System.Windows.Forms.MessageBox]::Show($m, "Model Router")
+}
