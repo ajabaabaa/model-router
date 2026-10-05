@@ -246,7 +246,7 @@ footer{color:var(--mut);font:11px var(--mono);letter-spacing:.04em;padding:0 24p
     <div class="note" style="border-color:rgba(100,116,139,.4);background:rgba(100,116,139,.08);color:var(--tx2)">
       <b>Changes apply to the next request</b> (no restart). Each save validates the config, makes a timestamped backup and can be undone below. Prices are OpenRouter list prices, blended at your recent input:output mix.
     </div>
-    <div class="tools"><button class="btn" id="ctl-new">+ New tier</button><button class="btn" id="ctl-refresh">Refresh</button><span class="label" id="ctl-status"></span></div>
+    <div class="tools"><button class="btn" id="ctl-new">+ New tier</button><button class="btn" id="ctl-routes" title="Give every agent seen in the last 7 days its own route, copied from the tier it used most — nothing changes until you edit it">Create agent routes from usage</button><button class="btn" id="ctl-refresh">Refresh</button><span class="label" id="ctl-status"></span></div>
     <div class="cgrid" id="ctl-tiers"></div>
     <div id="ctl-picker"></div>
     <div class="panel"><h2>Recent changes</h2><div class="sub">undo restores the config as it was before that change (the current file is backed up first)</div><div id="ctl-audit"></div></div>
@@ -697,10 +697,12 @@ async function loadCtl(){
   try {
     const r = await fetch("/api/control/tiers", {cache:"no-store"}); const j = await r.json();
     if (!r.ok) throw new Error(j.message || j.error || r.status);
-    state.ctl.data = j; renderCtl();
+    state.ctl.data = j;
+    try { const u = await (await fetch("/api/control/route-usage?window=7d", {cache:"no-store"})).json(); state.ctl.usage = u.routes || {}; } catch (e) { state.ctl.usage = {}; }
+    renderCtl();
   } catch (e) { $("#ctl-tiers").innerHTML = `<div class="note">Could not load tiers: ${esc(e.message)}</div>`; }
 }
-const orig = (name) => { const t = state.ctl.data.tiers[name]; return {primary: t.primary, fallbacks: [...t.fallbacks], policy: "keep"}; };
+const orig = (name) => { const t = state.ctl.data.tiers[name]; return {primary: t.primary, fallbacks: [...t.fallbacks], policy: "keep", effort: t.reasoning_effort ?? null}; };
 const draftOf = name => name === "__new" ? state.ctl.newTier : (state.ctl.drafts[name] || orig(name));
 const isDirty = name => name === "__new" || JSON.stringify(draftOf(name)) !== JSON.stringify(orig(name));
 function priceOf(id){ const c = state.ctl.prices?.[id]; return c || null; }
@@ -717,7 +719,7 @@ function renderCtl(){
   Object.values(d.tiers).forEach(t => t.chain.forEach(m => { state.ctl.prices[m.id] = m; }));
   const c = d.catalog;
   $("#ctl-status").textContent = c.ok ? `catalog: ${c.count} models${c.stale ? " (stale — OpenRouter unreachable)" : ""} · mix ${d.ratio}:1 input:output` : "catalog unavailable — changes are unverified";
-  const names = Object.keys(d.tiers); if (state.ctl.newTier) names.push("__new");
+  const names = Object.keys(d.tiers).sort((a, b) => (!!d.tiers[b].agent - !!d.tiers[a].agent) || a.localeCompare(b)); if (state.ctl.newTier) names.push("__new");
   $("#ctl-tiers").innerHTML = names.map(n => tierCard(n)).join("");
   renderPicker();
   $("#ctl-audit").innerHTML = d.audit.length ? `<div class="tw"><table><thead><tr><th>When</th><th>Action</th><th>Changed</th><th></th></tr></thead><tbody>${d.audit.map((a,i) => `<tr><td>${new Date(a.at).toLocaleString()}</td><td class="txt">${esc(a.action)}</td><td class="muted">${esc((a.paths||[]).join(", "))}</td><td class="r">${a.backup ? `<button class="btn sm" data-undo="${i}">${String(a.action).startsWith("restore:") ? "Redo" : "Undo"}</button>` : ""}</td></tr>`).join("")}</tbody></table></div>` : `<div class="empty">no changes made from the Control Center yet</div>`;
@@ -738,10 +740,11 @@ function tierCard(name){
   const msg = state.ctl.msg[name];
   return `<div class="cc ${dirty ? "dirty" : ""}" data-card="${esc(name)}">
     <div class="head">${isNew ? `<span><input type="text" id="nt-name" placeholder="new-tier-name" value="${esc(state.ctl.newTier.name || "")}" maxlength="31" style="width:160px"> <select data-act="provider"><option value="openrouter" ${isLocal ? "" : "selected"}>cloud (OpenRouter)</option><option value="ollama" ${isLocal ? "selected" : ""}>local (Ollama)</option></select></span>` : `<span class="name">${esc(name)}</span>`}
-      <span>${cur ? (isLocal ? chip("ok","local") + " " : "") + protChip(cur.protection) : (isLocal ? chip("ok","local") : "")} ${dirty && !isNew ? chip("warn","unsaved") : ""}</span></div>
+      <span>${cur ? (cur.agent ? chip("ok","agent route","used only by this agent; changing it never touches the agent's own config") : chip("warn","shared tier","any caller can request this by model name")) + " " + ((state.ctl.usage?.[name]?.calls ?? 0) + " calls/7d · ") : ""}${cur ? (isLocal ? chip("ok","local") + " " : "") + protChip(cur.protection) : (isLocal ? chip("ok","local") : "")} ${dirty && !isNew ? chip("warn","unsaved") : ""}</span></div>
     ${rows}
     <div class="foot"><button class="btn sm" data-act="add" data-t="${esc(name)}">+ Add model</button>
-      <label class="muted mono" style="font-size:11px">privacy <select data-act="policy" data-t="${esc(name)}" ${isLocal ? "disabled" : ""}>${pol.map(p => `<option value="${p}" ${dr.policy === p || isLocal ? "selected" : ""}>${POLICY_LABEL[p]}${p === "keep" ? " (" + PROT_LABEL[cur.protection].toLowerCase() + ")" : ""}</option>`).join("")}</select></label>${delta}</div>
+      <label class="muted mono" style="font-size:11px">privacy <select data-act="policy" data-t="${esc(name)}" ${isLocal ? "disabled" : ""}>${pol.map(p => `<option value="${p}" ${dr.policy === p || isLocal ? "selected" : ""}>${POLICY_LABEL[p]}${p === "keep" ? " (" + PROT_LABEL[cur.protection].toLowerCase() + ")" : ""}</option>`).join("")}</select></label>${delta}
+      <label class="muted mono" style="font-size:11px">reasoning <select data-act="effort" data-t="${esc(name)}">${[["","default"],["none","none"],["minimal","minimal"],["low","low"],["medium","medium"],["high","high"]].map(([v,l]) => `<option value="${v}" ${(dr.effort ?? "") === v ? "selected" : ""}>${l}</option>`).join("")}</select></label></div>
     <div class="foot">${dirty ? `<button class="btn primary sm" data-act="save" data-t="${esc(name)}">${isNew ? "Create tier" : "Save changes"}</button><button class="btn sm" data-act="revert" data-t="${esc(name)}">${isNew ? "Cancel" : "Revert"}</button>` : ""}
       ${!isNew ? `<button class="btn sm" data-act="delete" data-t="${esc(name)}" style="margin-left:auto;color:var(--bad)">Delete tier</button>` : ""}</div>
     <div class="msg ${msg?.cls || ""}">${esc(msg?.text || "")}</div></div>`;
@@ -755,6 +758,7 @@ $("#ctl-tiers").addEventListener("input", e => { if (e.target.id === "nt-name") 
 $("#ctl-tiers").addEventListener("change", e => {
   const pv = e.target.closest("select[data-act=provider]");
   if (pv) { Object.assign(state.ctl.newTier, {provider: pv.value, primary: null, fallbacks: [], policy: pv.value === "ollama" ? "local" : "zdr"}); state.ctl.picker = null; renderCtl(); return; }
+  const ef = e.target.closest("select[data-act=effort]"); if (ef) { setDraft(ef.dataset.t, dr => { dr.effort = ef.value || null; }); return; }
   const s = e.target.closest("select[data-act=policy]"); if (s) setDraft(s.dataset.t, dr => { dr.policy = s.value; });
 });
 $("#ctl-tiers").addEventListener("click", async e => {
@@ -771,7 +775,7 @@ async function saveTier(t, confirm){
   if (isNew && !name) { state.ctl.msg[t] = {cls:"err", text:"Give the new tier a name first."}; return renderCtl(); }
   if (!dr.primary) { state.ctl.msg[t] = {cls:"err", text:"A tier needs at least one model."}; return renderCtl(); }
   state.ctl.msg[t] = {cls:"", text:"saving…"}; renderCtl();
-  const res = await api("PUT", "/api/control/tiers", {base_hash: state.ctl.data.config_hash, action: isNew ? "create" : "set", tier: name, primary: dr.primary, fallbacks: dr.fallbacks, policy: dr.policy, confirm, ...(isNew ? {provider: dr.provider} : {})});
+  const res = await api("PUT", "/api/control/tiers", {base_hash: state.ctl.data.config_hash, action: isNew ? "create" : "set", tier: name, primary: dr.primary, fallbacks: dr.fallbacks, policy: dr.policy, confirm, ...(isNew ? {provider: dr.provider} : {}), ...((dr.effort ?? null) !== (isNew ? null : orig(t).effort) ? {reasoning_effort: dr.effort ?? null} : {})});
   if (res.status === 409 && res.json.error === "needs_confirmation") {
     if (window.confirm(res.json.message + "\n\nApply anyway?")) return saveTier(t, true);
     state.ctl.msg[t] = {cls:"", text:"not saved"}; return renderCtl();
@@ -789,6 +793,15 @@ async function deleteTier(t){
 }
 $("#ctl-new").addEventListener("click", () => { state.ctl.newTier = {name: "", primary: null, fallbacks: [], policy: "zdr", provider: "openrouter"}; renderCtl(); });
 $("#ctl-refresh").addEventListener("click", loadCtl);
+$("#ctl-routes").addEventListener("click", async () => {
+  let res = await api("POST", "/api/control/agent-routes/from-usage", {base_hash: state.ctl.data.config_hash});
+  if (res.status === 409 && res.json.error === "needs_confirmation") {
+    if (!window.confirm(res.json.message + "\n\nA backup is made first and you can undo it from the change history.")) return;
+    res = await api("POST", "/api/control/agent-routes/from-usage", {base_hash: state.ctl.data.config_hash, confirm: true});
+  }
+  $("#ctl-status").textContent = res.ok ? `created ${res.json.created.length} agent route(s)` : res.text;
+  if (res.ok) await loadCtl();
+});
 $("#ctl-audit").addEventListener("click", async e => {
   const b = e.target.closest("button[data-undo]"); if (!b) return; const a = state.ctl.data.audit[+b.dataset.undo];
   if (!window.confirm(`Undo "${a.action}"? The config returns to how it was before that change; later changes are lost. The current file is backed up first.`)) return;

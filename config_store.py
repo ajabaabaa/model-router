@@ -99,9 +99,17 @@ def validate(config: dict[str, Any]) -> None:
         policy = tier.get("provider_policy")
         if policy is not None and not isinstance(policy, dict):
             raise ConfigError(f"tier {name!r}: provider_policy must be an object")
+        owner = tier.get("agent")
+        if owner is not None and owner != name:
+            raise ConfigError(f"tier {name!r}: 'agent' must equal the route's own name")
+        if "reasoning_effort" in tier and tier["reasoning_effort"] not in (None, "none", "minimal", "low", "medium", "high"):
+            raise ConfigError(f"tier {name!r}: reasoning_effort must be null, none, minimal, low, medium or high")
         floor = tier.get("min_max_tokens")
         if floor is not None and (not isinstance(floor, int) or isinstance(floor, bool) or floor < 1):
             raise ConfigError(f"tier {name!r}: min_max_tokens must be a positive integer")
+    fallback_route = config.get("default_route")
+    if fallback_route is not None and fallback_route not in tiers:
+        raise ConfigError("default_route must name an existing route")
     local = config.get("ollama")
     if local is not None:
         base = local.get("base_url") if isinstance(local, dict) else None

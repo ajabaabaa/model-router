@@ -145,6 +145,16 @@ def select_tier(body: dict[str, Any]) -> tuple[Any, Any, str, bool, str | None]:
     attribution = (tag.strip() or None) if sep else prefix
     return base, base, "explicit_tier", False, attribution
 
+def agent_route_for(cfg: dict[str, Any], agent: Any) -> str | None:
+    """A route owned by the calling agent wins over whatever model name the client sent, so the
+    operator (not the agent's own config) decides which models an identified agent uses."""
+    tiers = cfg.get("tiers") if isinstance(cfg, dict) else None
+    if isinstance(agent, str) and agent and isinstance(tiers, dict):
+        route = tiers.get(agent)
+        if isinstance(route, dict) and route.get("agent") == agent:
+            return agent
+    return None
+
 app = FastAPI(title="Model Router", version="0.1.0")
 init_db()
 app.include_router(dashboard_router)
@@ -267,8 +277,14 @@ async def chat_completions(request: Request):
             budget_deadline = started + total_budget_ms / 1000
         request_has_stream = int(body.get("stream") is True); request_has_tools = int(bool(body.get("tools")))
         request_has_tool_choice = int("tool_choice" in body and body.get("tool_choice") is not None)
-        cfg = load_config(); tier_cfg = cfg["tiers"].get(tier)
-        if not tier_cfg: status = 400; return JSONResponse({"error":{"message":"model must be fast, balanced, or deep","type":"invalid_request_error"}}, status_code=status)
+        cfg = load_config()
+        owned = agent_route_for(cfg, metadata.get("agent"))
+        if owned:
+            tier, routing_reason, routing_automatic = owned, "agent_route", False
+        elif tier not in cfg["tiers"] and cfg.get("default_route") in cfg["tiers"]:
+            tier, routing_reason = cfg["default_route"], "default_route"
+        tier_cfg = cfg["tiers"].get(tier)
+        if not tier_cfg: status = 400; return JSONResponse({"error":{"message":"unknown route: no route matches this model name or caller, and no default_route is set","type":"invalid_request_error"}}, status_code=status)
         if tier_cfg.get("provider") not in ("openrouter", "ollama"): status = 500; return JSONResponse({"error":{"message":"unsupported provider","type":"configuration_error"}}, status_code=status)
         is_local = tier_cfg.get("provider") == "ollama"
         local_cfg = cfg.get("ollama") if isinstance(cfg.get("ollama"), dict) else {}
@@ -278,7 +294,7 @@ async def chat_completions(request: Request):
         key = None if is_local else api_key()
         if not is_local and not key: status = 503; return JSONResponse({"error":{"message":"OpenRouter API key is not configured","type":"configuration_error"}}, status_code=status)
         models = [tier_cfg["primary"], *tier_cfg.get("fallbacks", [])]; upstream_body = dict(body)
-        default_effort = None if is_local else {"fast": "none", "balanced": "minimal"}.get(tier)
+        default_effort = None if is_local else (tier_cfg["reasoning_effort"] if "reasoning_effort" in tier_cfg else {"fast": "none", "balanced": "minimal"}.get(tier))
         if default_effort:
             reasoning = upstream_body.get("reasoning")
             if not isinstance(reasoning, dict):

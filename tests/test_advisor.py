@@ -171,3 +171,10 @@ def test_endpoint_returns_a_report_even_with_no_traffic(api):
 
 def test_endpoint_rejects_unknown_windows(api):
     assert api.get("/api/control/advisor?window=bogus").status_code == 422
+
+
+def test_other_agents_routes_are_not_options():
+    tiers = {**TIERS, "bot2": {**TIERS["balanced"], "agent": "bot2"}, "a": {**TIERS["deep"], "agent": "a"}}
+    out = one(rows("a", "a"), {"baseline": "internal"}, tiers=tiers)
+    names = [o["tier"] for o in out["options"]]
+    assert "bot2" not in names and "a" in names

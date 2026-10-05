@@ -450,6 +450,9 @@ def control_audit(limit: int = Query(30, ge=1, le=200)) -> Any:
 # ---------------------------------------------------------------- model & tier editor
 
 TIER_NAME = re.compile(r"^[a-z0-9][a-z0-9_-]{0,30}$")
+AGENT_NAME = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,39}$")
+LEGACY_EFFORT = {"fast": "none", "balanced": "minimal"}
+EFFORTS = (None, "none", "minimal", "low", "medium", "high")
 MODEL_ID = re.compile(r"^[A-Za-z0-9._~-]+/[A-Za-z0-9._:~-]+$")
 MAX_CHAIN = 6
 POLICIES = ("zdr", "no-collection", "none", "keep", "local")
@@ -529,7 +532,8 @@ def control_tiers() -> Any:
         tiers[name] = {"primary": tier.get("primary"), "fallbacks": list(tier.get("fallbacks") or []),
                        "provider": tier.get("provider"), "policy": policy,
                        "protection": "local" if local else risk.protection_of(policy),
-                       "min_max_tokens": tier.get("min_max_tokens"),
+                       "min_max_tokens": tier.get("min_max_tokens"), "agent": tier.get("agent"),
+                       "reasoning_effort": tier.get("reasoning_effort"),
                        "chain": [(_priced_local(m, installed) if local else _priced(m, prices, ratio))
                                  for m in chain if isinstance(m, str)]}
     return {"config_hash": config_hash, "ratio": ratio, "catalog": status, "local": local_status, "tiers": tiers,
@@ -625,11 +629,15 @@ async def control_put_tiers(request: Request) -> Any:
             del tiers[tier]
         else:
             if action == "create":
-                if not TIER_NAME.match(tier):
-                    raise config_store.ConfigError("tier name: lowercase letters, digits, - or _ (max 31)")
+                as_agent = body.get("agent") is True
+                if not (AGENT_NAME if as_agent else TIER_NAME).match(tier):
+                    raise config_store.ConfigError("agent name: letters, digits, . - _ (max 40)" if as_agent
+                                                   else "tier name: lowercase letters, digits, - or _ (max 31)")
                 if tier in tiers:
                     raise config_store.ConfigError(f"tier {tier!r} already exists", 409)
                 tiers[tier] = {"provider": new_provider}
+                if as_agent:
+                    tiers[tier]["agent"] = tier
             elif tier not in tiers:
                 raise config_store.ConfigError(f"no tier named {tier!r}", 404)
             fallbacks = body.get("fallbacks") or []
@@ -648,6 +656,10 @@ async def control_put_tiers(request: Request) -> Any:
                 _check_chain(tier, chain, prices, verified, keep)
                 choice_used = choice
             tiers[tier]["primary"], tiers[tier]["fallbacks"] = chain[0], chain[1:]
+            if "reasoning_effort" in body:
+                if body["reasoning_effort"] not in EFFORTS:
+                    raise config_store.ConfigError("reasoning_effort must be null, none, minimal, low, medium or high")
+                tiers[tier]["reasoning_effort"] = body["reasoning_effort"]
             policy = _apply_policy(tiers[tier].get("provider_policy"), choice_used)
             if policy:
                 tiers[tier]["provider_policy"] = policy
@@ -818,6 +830,86 @@ async def control_canary_run(request: Request) -> Any:
     return {"started": True, "status": dict(canary.RUNNER.state)}
 
 
+# ---- agent routes -----------------------------------------------------------------------------
+
+def _dominant_tiers(rows: list[dict[str, Any]]) -> dict[str, tuple[str, int]]:
+    counts: dict[str, dict[str, int]] = {}
+    for r in rows:
+        agent, tier = r.get("agent"), r.get("selected_tier")
+        if isinstance(agent, str) and agent and isinstance(tier, str) and tier:
+            counts.setdefault(agent, {})[tier] = counts.get(agent, {}).get(tier, 0) + 1
+    return {a: max(c.items(), key=lambda kv: kv[1]) for a, c in counts.items()}
+
+
+@router.post("/api/control/agent-routes/from-usage")
+async def control_agent_routes_from_usage(request: Request) -> Any:
+    """Give every observed agent its own route, copied from the tier it mostly used, so behaviour is unchanged."""
+    refused = _guard_write(request)
+    if refused:
+        return refused
+    try:
+        body = await request.json()
+    except ValueError:
+        return JSONResponse({"error": "invalid_json"}, status_code=422)
+    if not isinstance(body, dict):
+        return JSONResponse({"error": "expected {base_hash, confirm?}"}, status_code=422)
+    now = datetime.now(timezone.utc)
+    rows = [r for r in _read(now - WINDOWS["7d"][0]) if not _is_synthetic(r)]
+    dominant = _dominant_tiers(rows)
+    created: list[dict[str, Any]] = []
+    skipped: list[dict[str, str]] = []
+
+    def mutate(cfg: dict[str, Any]) -> None:
+        created.clear(); skipped.clear()
+        tiers = cfg.setdefault("tiers", {})
+        for agent, (src, _n) in sorted(dominant.items()):
+            if not AGENT_NAME.match(agent):
+                skipped.append({"agent": agent, "reason": "name not usable as a route"}); continue
+            if agent in tiers:
+                skipped.append({"agent": agent, "reason": "already has a route or a tier of that name"}); continue
+            base = tiers.get(src)
+            if not isinstance(base, dict):
+                skipped.append({"agent": agent, "reason": f"its tier {src!r} no longer exists"}); continue
+            route = copy.deepcopy({k: v for k, v in base.items() if k != "agent"})
+            route["agent"] = agent
+            if "reasoning_effort" not in route and src in LEGACY_EFFORT:
+                route["reasoning_effort"] = LEGACY_EFFORT[src]
+            tiers[agent] = route
+            created.append({"agent": agent, "copied_from": src})
+        if not created:
+            raise config_store.ConfigError("no new agent routes to create", 422)
+        if body.get("confirm") is not True:
+            raise NeedsConfirmation(f"Create {len(created)} agent route(s): " + ", ".join(c["agent"] for c in created)
+                                    + ". Each copies its current tier's models and privacy, so nothing changes yet.")
+
+    try:
+        result = config_store.update(mutate, base_hash=body.get("base_hash"), action="agent-routes:from-usage")
+    except NeedsConfirmation as exc:
+        return JSONResponse({"error": "needs_confirmation", "message": str(exc), "preview": created, "skipped": skipped},
+                            status_code=409)
+    except config_store.ConfigError as exc:
+        return _config_error(exc)
+    return {"ok": True, "created": created, "skipped": skipped, **result}
+
+
+@router.get("/api/control/route-usage")
+def control_route_usage(window: str = Query("7d")) -> Any:
+    """Calls per route, so a legacy tier that nobody uses can be retired with confidence."""
+    if window not in WINDOWS:
+        return JSONResponse({"error": "unknown_window", "windows": list(WINDOWS)}, status_code=422)
+    span, _ = WINDOWS[window]
+    now = datetime.now(timezone.utc)
+    usage: dict[str, dict[str, Any]] = {}
+    for r in _read(now - span if span else None):
+        if _is_synthetic(r) or not r.get("selected_tier"):
+            continue
+        u = usage.setdefault(r["selected_tier"], {"calls": 0, "agents": {}})
+        u["calls"] += 1
+        a = r.get("agent") or "unknown"
+        u["agents"][a] = u["agents"].get(a, 0) + 1
+    return {"window": window, "routes": usage}
+
+
 # ---- advisor ----------------------------------------------------------------------------------
 
 def _advisor_tiers() -> dict[str, dict[str, Any]] | None:
@@ -827,7 +919,7 @@ def _advisor_tiers() -> dict[str, dict[str, Any]] | None:
     out = {}
     for name, tier in data["tiers"].items():
         first = next((m for m in tier["chain"] if m.get("known")), None) if tier["chain"] else None
-        out[name] = {"protection": tier["protection"], "provider": tier["provider"], "primary": tier["primary"],
+        out[name] = {"protection": tier["protection"], "provider": tier["provider"], "primary": tier["primary"], "agent": tier.get("agent"),
                      "price_in": first["in"] if first else None, "price_out": first["out"] if first else None}
     return out
 

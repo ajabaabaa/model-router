@@ -167,7 +167,7 @@ def advise_agent(name: str, rows: list[dict[str, Any]], profile: Any, tiers: dic
                    "monthly_saving": None})
         return out
     options = [_option(n, t, f, need, min_rank, idx.get(n), current_score, n == current)
-               for n, t in tiers.items()]
+               for n, t in tiers.items() if not t.get("agent") or t.get("agent") == name]
     out["options"] = sorted(options, key=lambda o: (o["cost_per_call"] is None, o["cost_per_call"] or 0))
     cur = next((o for o in options if o["current"]), None)
     detail: list[str] = []
