@@ -9,7 +9,7 @@
 <style>
 :root{
   --canvas:#090d16; --s1:#0f172a; --s2:#1e293b; --s3:#334155; --s4:#475569;
-  --tx:#f8fafc; --tx2:#a3b1c6; --mut:#7c8ba1;
+  --edge:#6b7a90; --edge-hi:#94a3b8; --tx:#f8fafc; --tx2:#a3b1c6; --mut:#7c8ba1;
   --ok:#34d399; --ok-d:#059669; --bad:#f87171; --bad-d:#dc2626; --warn:#fbbf24; --warn-d:#d97706; --idle:#94a3b8;
   --sans:"Hanken Grotesk",system-ui,-apple-system,"Segoe UI",sans-serif;
   --mono:"JetBrains Mono",ui-monospace,"Cascadia Mono",Consolas,monospace;
@@ -26,18 +26,18 @@ header{position:sticky;top:0;z-index:20;background:rgba(9,13,22,.94);backdrop-fi
 .bar{display:flex;align-items:center;gap:16px;padding:10px 24px;flex-wrap:wrap}
 .brand .label{color:var(--ok)}
 .brand h1{margin:0;font:600 16px/20px var(--sans);letter-spacing:-.01em}
-.live{display:flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid var(--s3);border-radius:4px;background:var(--s1)}
+.live{display:flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid var(--edge-hi);border-radius:4px;background:var(--s1)}
 .dot{width:8px;height:8px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 0 rgba(52,211,153,.6);animation:pulse 2s infinite}
 .live.paused .dot{background:var(--idle);animation:none}
 .live.err .dot{background:var(--bad);animation:none}
 @keyframes pulse{70%{box-shadow:0 0 0 7px rgba(52,211,153,0)}100%{box-shadow:0 0 0 0 rgba(52,211,153,0)}}
 .spacer{flex:1}
-.seg{display:flex;border:1px solid var(--s3);border-radius:4px;overflow:hidden}
+.seg{display:flex;border:1px solid var(--edge-hi);border-radius:4px;overflow:hidden}
 .seg button{background:var(--s1);color:var(--tx2);border:0;border-right:1px solid var(--s3);padding:6px 11px;font:500 12px var(--mono);cursor:pointer}
 .seg button:last-child{border-right:0}
 .seg button:hover{background:var(--s2);color:var(--tx)}
 .seg button[aria-pressed=true]{background:var(--s2);color:var(--ok);box-shadow:inset 0 -2px 0 var(--ok)}
-.btn{background:transparent;color:var(--tx);border:1px solid var(--s3);border-radius:4px;padding:6px 11px;font:500 12px var(--mono);cursor:pointer}
+.btn{background:transparent;color:var(--tx);border:1px solid var(--edge-hi);border-radius:4px;padding:6px 11px;font:500 12px var(--mono);cursor:pointer}
 .btn:hover{background:var(--s2);border-color:var(--s4)}
 .btn[aria-pressed=true]{border-color:var(--ok-d);color:var(--ok)}
 nav.tabs{display:flex;gap:2px;padding:0 24px}
@@ -47,7 +47,7 @@ nav.tabs button[aria-selected=true]{color:var(--tx);border-bottom-color:var(--ok
 #banner{display:none;padding:8px 24px;background:rgba(220,38,38,.12);border-bottom:1px solid rgba(220,38,38,.3);color:var(--bad);font:500 12px var(--mono)}
 
 main{padding:20px 24px 48px;max-width:1700px;margin:0 auto}
-.panel{background:var(--s1);border:1px solid var(--s2);border-radius:4px;padding:16px}
+.panel{background:var(--s1);border:1px solid var(--edge);border-radius:4px;padding:16px}
 .panel h2{margin:0 0 2px;font:600 15px/20px var(--sans);letter-spacing:-.01em}
 .panel .sub{color:var(--mut);font-size:12px;margin-bottom:12px}
 .grid{display:grid;gap:16px}
@@ -57,7 +57,7 @@ main{padding:20px 24px 48px;max-width:1700px;margin:0 auto}
 
 /* KPI strip */
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:16px}
-.kpi{background:var(--s1);border:1px solid var(--s2);border-radius:4px;padding:12px 14px;position:relative;overflow:hidden}
+.kpi{background:var(--s1);border:1px solid var(--edge);border-radius:4px;padding:12px 14px;position:relative;overflow:hidden}
 .kpi .v{font:600 24px/30px var(--mono);letter-spacing:-.02em;margin:2px 0}
 .kpi .d{font:400 11px/16px var(--mono);color:var(--mut)}
 .kpi.warn{border-color:rgba(217,119,6,.5)} .kpi.warn .v{color:var(--warn)}
@@ -67,13 +67,13 @@ main{padding:20px 24px 48px;max-width:1700px;margin:0 auto}
 .kpi.warn .accent{background:var(--warn-d)} .kpi.good .accent{background:var(--ok-d)} .kpi.bad .accent{background:var(--bad-d)}
 
 /* tables */
-.tw{overflow:auto;border:1px solid var(--s2);border-radius:4px}
+.tw{overflow:auto;border:1px solid var(--edge);border-radius:4px}
 table{width:100%;border-collapse:collapse;font-size:12.5px}
 th{background:var(--s2);color:var(--tx2);font:500 11px/14px var(--mono);letter-spacing:.06em;text-transform:uppercase;text-align:left;padding:9px 12px;border-bottom:1px solid var(--s3);white-space:nowrap;position:sticky;top:0;cursor:pointer;user-select:none}
 th.r,td.r{text-align:right}
 th:hover{color:var(--tx)}
 th .arr{color:var(--ok);margin-left:4px}
-td{padding:8px 12px;border-bottom:1px solid var(--s2);white-space:nowrap;font-family:var(--mono);font-feature-settings:"tnum" 1}
+td{padding:8px 12px;border-bottom:1px solid var(--s3);white-space:nowrap;font-family:var(--mono);font-feature-settings:"tnum" 1}
 td.txt{font-family:var(--sans)}
 tbody tr:nth-child(odd){background:var(--s1)} tbody tr:nth-child(even){background:#0b1120}
 tbody tr:hover{background:var(--s2)}
@@ -99,7 +99,7 @@ tr.failrow td:first-child{box-shadow:inset 3px 0 var(--bad-d)}
 
 /* tier cards */
 .tiers{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-bottom:16px}
-.tier{background:var(--s1);border:1px solid var(--s2);border-radius:4px;padding:12px 14px}
+.tier{background:var(--s1);border:1px solid var(--edge);border-radius:4px;padding:12px 14px}
 .tier .head{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
 .tier .name{font:600 15px var(--sans)}
 .chain{margin:8px 0;font:400 11.5px/18px var(--mono);color:var(--tx2)}
@@ -109,7 +109,7 @@ tr.failrow td:first-child{box-shadow:inset 3px 0 var(--bad-d)}
 
 /* feed filters */
 .tools{display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap}
-.tools input{background:var(--s1);border:1px solid var(--s3);color:var(--tx);border-radius:4px;padding:6px 10px;font:12px var(--mono);min-width:280px}
+.tools input{background:var(--s1);border:1px solid var(--edge-hi);color:var(--tx);border-radius:4px;padding:6px 10px;font:12px var(--mono);min-width:280px}
 .tools input:focus{outline:none;border-color:var(--idle)}
 .tools input::placeholder{color:var(--mut)}
 
@@ -147,11 +147,11 @@ footer{color:var(--mut);font:11px var(--mono);letter-spacing:.04em;padding:0 24p
 .h-low{background:rgba(5,150,105,.14);border:1px solid rgba(5,150,105,.35)}
 .h-none{color:var(--mut);text-align:center;border:1px dashed var(--s3)}
 .eras{display:grid;gap:8px;margin-bottom:14px}
-.era{display:grid;grid-template-columns:150px 1fr;gap:12px;align-items:start;padding:8px 10px;border:1px solid var(--s2);border-radius:4px;background:#0b1120}
+.era{display:grid;grid-template-columns:150px 1fr;gap:12px;align-items:start;padding:8px 10px;border:1px solid var(--edge);border-radius:4px;background:#0b1120}
 .era .when{font:500 11.5px var(--mono);color:var(--tx2)}
-.editor{border:1px solid var(--s3);background:var(--s2);border-radius:4px;padding:12px 14px;margin:10px 0}
+.editor{border:1px solid var(--edge-hi);background:var(--s2);border-radius:4px;padding:12px 14px;margin:10px 0}
 .editor label{display:block;font:500 11px var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--mut);margin:8px 0 3px}
-.editor select,.editor input[type=text]{background:var(--s1);border:1px solid var(--s3);color:var(--tx);border-radius:4px;padding:6px 8px;font:12px var(--mono);width:100%;max-width:520px}
+.editor select,.editor input[type=text]{background:var(--s1);border:1px solid var(--edge-hi);color:var(--tx);border-radius:4px;padding:6px 8px;font:12px var(--mono);width:100%;max-width:520px}
 .editor .row{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
 .btn.primary{background:var(--ok-d);border-color:var(--ok-d);color:#fff;font-weight:600}
 .btn.primary:hover{background:#047857}
@@ -159,19 +159,19 @@ footer{color:var(--mut);font:11px var(--mono);letter-spacing:.04em;padding:0 24p
 .msg.err{color:var(--bad)} .msg.ok{color:var(--ok)}
 /* controls */
 .cgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(400px,1fr));gap:12px;margin-bottom:16px}
-.cc{background:var(--s1);border:1px solid var(--s2);border-radius:4px;padding:12px 14px}
+.cc{background:var(--s1);border:1px solid var(--edge);border-radius:4px;padding:12px 14px}
 .cc.dirty{border-color:var(--warn)}
 .cc .head{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px}
 .cc .name{font:600 15px var(--sans)}
-.mrow{display:grid;grid-template-columns:70px 1fr auto;gap:8px;align-items:center;padding:6px 0;border-top:1px solid var(--s2)}
+.mrow{display:grid;grid-template-columns:70px 1fr auto;gap:8px;align-items:center;padding:6px 0;border-top:1px solid var(--s3)}
 .mrow .role{font:500 10.5px var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--mut)}
 .mrow .mid{font:500 12px var(--mono);word-break:break-all}
 .mrow .px{font:400 11px var(--mono);color:var(--tx2);margin-top:2px}
 .mrow .acts{display:flex;gap:4px}
 .btn.sm{padding:3px 8px;font-size:11px}
-.cc select,.cc input[type=text],.picker input[type=text]{background:var(--s1);border:1px solid var(--s3);color:var(--tx);border-radius:4px;padding:6px 8px;font:12px var(--mono)}
+.cc select,.cc input[type=text],.picker input[type=text]{background:var(--s1);border:1px solid var(--edge-hi);color:var(--tx);border-radius:4px;padding:6px 8px;font:12px var(--mono)}
 .cc .foot{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px}
-.picker{border:1px solid var(--s3);background:var(--s2);border-radius:4px;padding:12px 14px;margin-bottom:16px}
+.picker{border:1px solid var(--edge-hi);background:var(--s2);border-radius:4px;padding:12px 14px;margin-bottom:16px}
 .tools input[type=checkbox]{min-width:0;width:auto;margin-right:4px;vertical-align:middle}
 .picker label.chk{font:12px var(--mono);color:var(--tx2);margin-right:12px;cursor:pointer}
 [hidden]{display:none!important}
@@ -595,7 +595,7 @@ function drawGraph(o){
     return `<path class="link" data-from="${esc(e.from)}" data-to="${esc(e.to)}" d="${path(e)}" stroke="${st.color}" stroke-width="${lw(e)}" stroke-opacity="${e.requests ? .55 : .5}" ${e.requests ? "" : 'stroke-dasharray="4 4"'}><title>${esc(o.edgeTip(e, pos))}</title></path>`; }).join("");
   const sel = state[o.selKey];
   const nodes = [...pos.values()].map(({x, y, n}) => { const s = o.nodeStyle(n);
-    return `<g class="node mapnode" data-id="${esc(n.id)}" transform="translate(${x},${y})" opacity="${s.opacity ?? 1}" style="cursor:grab"><rect width="${BW}" height="${BH}" rx="7" fill="#0f172a" stroke="${s.stroke}" stroke-width="${sel === n.id ? 3 : s.sw || 1.2}"${s.dash ? ' stroke-dasharray="5 3"' : ""}/>
+    return `<g class="node mapnode" data-id="${esc(n.id)}" transform="translate(${x},${y})" opacity="${s.opacity ?? 1}" style="cursor:grab"><rect width="${BW}" height="${BH}" rx="7" fill="#16213a" stroke="${s.stroke}" stroke-width="${sel === n.id ? 3 : s.sw || 1.2}"${s.dash ? ' stroke-dasharray="5 3"' : ""}/>
       <text x="10" y="19">${esc(s.label.length > 24 ? s.label.slice(0, 23) + "…" : s.label)}</text><text class="sub" x="10" y="36">${esc(s.sub.slice(0, 32))}</text><title>${esc(s.label)} — ${esc(s.sub)}</title></g>`; }).join("");
   svg.innerHTML = o.columns.map((t, i) => `<text class="colhead" x="${xs[i]}" y="16">${t.toUpperCase()}</text>`).join("") + links + nodes;
   const keepFor = id => { const keep = new Set([id]); if (!id) return keep; const c0 = pos.get(id).n.col; let grew = true;
@@ -632,7 +632,7 @@ function renderMap(d){
   if (!M || !M.nodes.some(n => n.requests > 0)) { svg.setAttribute("height", 80); svg.innerHTML = `<text x="20" y="40" class="sub">no traffic in this window</text>`; $("#mapnote").textContent = ""; $("#mapdetail").innerHTML = ""; return; }
   drawGraph({svg, val, nodes: M.nodes, edges: M.edges, columns: M.columns || ["Programs","Agents","Routes","Models"], store: "mapPos", selKey: "mapSel", detailEl: $("#mapdetail"), redraw: () => renderMap(state.data),
     hint: "Click a box to see its numbers and jump to where you can change it.",
-    nodeStyle: n => { const fail = n.requests ? n.failures / n.requests : 0, edge = n.col === 2 ? (PROT_COLOR[n.protection] || "#94a3b8") : n.col === 0 ? "#34d399" : "#475569";
+    nodeStyle: n => { const fail = n.requests ? n.failures / n.requests : 0, edge = n.col === 2 ? (PROT_COLOR[n.protection] || "#94a3b8") : n.col === 0 ? "#34d399" : "#94a3b8";
       return {stroke: fail >= .05 ? "#dc2626" : edge, sw: n.col === 2 ? 2 : 1.2, dash: n.col === 2 && n.shared, opacity: n.requests ? 1 : .6, label: n.col === 3 ? short(n.label) : n.label,
         sub: `${int(n.requests)} calls · ${money(n.cost)}${fail >= .05 ? " · " + Math.round(fail * 100) + "% fail" : ""}${n.col === 2 ? (n.missing ? " ⚠ no such route" : n.local ? " · local" : "") : ""}`}; },
     edgeStyle: e => { const bad = e.requests ? e.failures / e.requests : 0; return {color: !e.requests ? "#64748b" : bad >= .05 ? "#dc2626" : e.fallbacks / e.requests >= .1 ? "#d97706" : "#64748b"}; },
@@ -853,7 +853,7 @@ function tierCard(name){
     ${rows}
     <div class="foot"><button class="btn sm" data-act="add" data-t="${esc(name)}">+ Add model</button>
       <label class="muted mono" style="font-size:11px">privacy <select data-act="policy" data-t="${esc(name)}" ${isLocal ? "disabled" : ""}>${pol.map(p => `<option value="${p}" ${dr.policy === p || isLocal ? "selected" : ""}>${POLICY_LABEL[p]}${p === "keep" ? " (" + PROT_LABEL[cur.protection].toLowerCase() + ")" : ""}</option>`).join("")}</select></label>${delta}
-      ${cur && cur.agent ? `<label class="muted mono" style="font-size:11px">program <input type="text" data-act="program" data-t="${esc(name)}" list="programs" maxlength="30" value="${esc(dr.program ?? "")}" placeholder="e.g. OpenClaw" style="width:110px"></label>` : ""}
+      ${cur && cur.agent ? `<label class="muted mono" style="font-size:11px">program <input type="text" data-act="program" data-t="${esc(name)}" list="programs" maxlength="30" value="${esc(dr.program ?? "")}" placeholder="e.g. OpenClaw" style="width:130px"></label>` : ""}
       <label class="muted mono" style="font-size:11px">reasoning <select data-act="effort" data-t="${esc(name)}">${[["","default"],["none","none"],["minimal","minimal"],["low","low"],["medium","medium"],["high","high"]].map(([v,l]) => `<option value="${v}" ${(dr.effort ?? "") === v ? "selected" : ""}>${l}</option>`).join("")}</select></label></div>
     <div class="foot">${dirty ? `<button class="btn primary sm" data-act="save" data-t="${esc(name)}">${isNew ? "Create tier" : "Save changes"}</button><button class="btn sm" data-act="revert" data-t="${esc(name)}">${isNew ? "Cancel" : "Revert"}</button>` : ""}
       ${!isNew ? `<button class="btn sm" data-act="delete" data-t="${esc(name)}" style="margin-left:auto;color:var(--bad)">Delete tier</button>` : ""}</div>
@@ -1052,7 +1052,7 @@ function renderEgressMap(d){
   if (!nodes.some(n => n.col === 0)) { svg.setAttribute("height", 80); svg.innerHTML = `<text x="20" y="40" class="sub">no AI connections seen in this window</text>`; $("#egdetail").innerHTML = ""; return; }
   drawGraph({svg, val: e => e.requests, nodes, edges, columns: ["Programs", "Router", "AI providers"], store: "egPos", selKey: "egSel", detailEl: $("#egdetail"), redraw: () => renderEgressMap(state.egress),
     hint: "Click a program or provider for its connections, and to block a program.",
-    nodeStyle: n => ({stroke: n.router ? "#34d399" : n.direct ? "#d97706" : "#475569", sw: n.router ? 2 : 1.2, dash: false, opacity: n.requests || n.router ? 1 : .6, label: n.label,
+    nodeStyle: n => ({stroke: n.router ? "#34d399" : n.direct ? "#d97706" : "#94a3b8", sw: n.router ? 2 : 1.2, dash: false, opacity: n.requests || n.router ? 1 : .6, label: n.label,
       sub: n.router ? `${int(n.requests)} connections via router` : `${int(n.requests)} conn · ${dur(n.seconds)}${n.direct ? " · " + n.direct + " direct" : ""}`}),
     edgeStyle: e => ({color: e.skips ? "#dc2626" : e.direct ? "#d97706" : "#059669"}),
     edgeTip: (e, pos) => `${pos.get(e.from).n.label} → ${pos.get(e.to).n.label}: ${int(e.requests)} connections${e.skips ? " (skips your router, which could carry this)" : e.direct ? " (direct, not via router)" : ""}`,
