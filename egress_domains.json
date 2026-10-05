@@ -1,0 +1,33 @@
+{
+  "_comment": "Edit freely. 'providers' maps a provider label to domain suffixes the collector treats as AI traffic. 'probe_hosts' are resolved every few minutes so apps that bypass the Windows DNS cache (browsers using DNS-over-HTTPS) can still be recognised by IP.",
+  "providers": {
+    "anthropic": ["anthropic.com", "claude.ai", "claude.com"],
+    "openai": ["openai.com", "chatgpt.com", "oaistatic.com", "oaiusercontent.com"],
+    "openrouter": ["openrouter.ai"],
+    "qwen-alibaba": ["dashscope.aliyuncs.com", "dashscope-intl.aliyuncs.com", "qwen.ai", "qwenlm.ai", "aliyuncs.com"],
+    "google-ai": ["generativelanguage.googleapis.com", "aiplatform.googleapis.com", "gemini.google.com", "ai.google.dev"],
+    "deepseek": ["deepseek.com"],
+    "xai": ["x.ai"],
+    "mistral": ["mistral.ai"],
+    "together": ["together.xyz", "together.ai"],
+    "groq": ["groq.com"],
+    "cohere": ["cohere.com", "cohere.ai"],
+    "perplexity": ["perplexity.ai"],
+    "fireworks": ["fireworks.ai"],
+    "minimax": ["minimax.io", "minimaxi.com"],
+    "zhipu-z": ["z.ai", "bigmodel.cn"],
+    "moonshot": ["moonshot.ai", "moonshot.cn"],
+    "huggingface": ["huggingface.co", "hf.space"],
+    "replicate": ["replicate.com"],
+    "stitch-google": ["stitch.withgoogle.com"],
+    "composio": ["composio.dev"]
+  },
+  "probe_hosts": [
+    "api.anthropic.com", "claude.ai", "api.openai.com", "chatgpt.com", "openrouter.ai",
+    "dashscope.aliyuncs.com", "dashscope-intl.aliyuncs.com", "chat.qwen.ai",
+    "api.deepseek.com", "generativelanguage.googleapis.com", "gemini.google.com", "api.x.ai",
+    "api.mistral.ai", "api.together.xyz", "api.groq.com", "api.cohere.com", "api.perplexity.ai",
+    "api.fireworks.ai", "api.minimax.io", "api.z.ai", "api.moonshot.ai", "huggingface.co",
+    "api.replicate.com", "backend.composio.dev"
+  ]
+}

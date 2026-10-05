@@ -1,4 +1,4 @@
-"""Read-only monitoring dashboard for openclaw-router.
+"""Read-only monitoring dashboard for Model Router.
 
 Serves the browser UI at GET /dashboard and two JSON APIs:
   GET /api/dashboard/summary?recent=100

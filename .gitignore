@@ -13,3 +13,12 @@ router.log
 .env.*
 *.key
 credentials*
+router_config.backups/
+control_audit.jsonl
+egress_log.jsonl
+egress_log.jsonl.1
+egress_active.json
+egress_active.json.tmp
+launcher.log
+ingress_log.jsonl
+ingress_log.jsonl.1

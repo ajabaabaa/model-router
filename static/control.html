@@ -1,0 +1,986 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Model Router · Control Center</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --canvas:#090d16; --s1:#0f172a; --s2:#1e293b; --s3:#334155; --s4:#475569;
+  --tx:#f8fafc; --tx2:#a3b1c6; --mut:#7c8ba1;
+  --ok:#34d399; --ok-d:#059669; --bad:#f87171; --bad-d:#dc2626; --warn:#fbbf24; --warn-d:#d97706; --idle:#94a3b8;
+  --sans:"Hanken Grotesk",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,"Cascadia Mono",Consolas,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--canvas);color:var(--tx);font:13px/20px var(--sans)}
+body{min-height:100vh}
+a{color:var(--ok);text-decoration:none} a:hover{text-decoration:underline}
+.mono,.num{font-family:var(--mono);font-feature-settings:"tnum" 1}
+.label{font:500 11px/14px var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--mut)}
+
+/* top bar */
+header{position:sticky;top:0;z-index:20;background:rgba(9,13,22,.94);backdrop-filter:blur(6px);border-bottom:1px solid var(--s2)}
+.bar{display:flex;align-items:center;gap:16px;padding:10px 24px;flex-wrap:wrap}
+.brand .label{color:var(--ok)}
+.brand h1{margin:0;font:600 16px/20px var(--sans);letter-spacing:-.01em}
+.live{display:flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid var(--s3);border-radius:4px;background:var(--s1)}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 0 rgba(52,211,153,.6);animation:pulse 2s infinite}
+.live.paused .dot{background:var(--idle);animation:none}
+.live.err .dot{background:var(--bad);animation:none}
+@keyframes pulse{70%{box-shadow:0 0 0 7px rgba(52,211,153,0)}100%{box-shadow:0 0 0 0 rgba(52,211,153,0)}}
+.spacer{flex:1}
+.seg{display:flex;border:1px solid var(--s3);border-radius:4px;overflow:hidden}
+.seg button{background:var(--s1);color:var(--tx2);border:0;border-right:1px solid var(--s3);padding:6px 11px;font:500 12px var(--mono);cursor:pointer}
+.seg button:last-child{border-right:0}
+.seg button:hover{background:var(--s2);color:var(--tx)}
+.seg button[aria-pressed=true]{background:var(--s2);color:var(--ok);box-shadow:inset 0 -2px 0 var(--ok)}
+.btn{background:transparent;color:var(--tx);border:1px solid var(--s3);border-radius:4px;padding:6px 11px;font:500 12px var(--mono);cursor:pointer}
+.btn:hover{background:var(--s2);border-color:var(--s4)}
+.btn[aria-pressed=true]{border-color:var(--ok-d);color:var(--ok)}
+nav.tabs{display:flex;gap:2px;padding:0 24px}
+nav.tabs button{background:none;border:0;border-bottom:2px solid transparent;color:var(--tx2);padding:10px 16px;font:500 12px var(--mono);letter-spacing:.06em;text-transform:uppercase;cursor:pointer}
+nav.tabs button:hover{color:var(--tx)}
+nav.tabs button[aria-selected=true]{color:var(--tx);border-bottom-color:var(--ok)}
+#banner{display:none;padding:8px 24px;background:rgba(220,38,38,.12);border-bottom:1px solid rgba(220,38,38,.3);color:var(--bad);font:500 12px var(--mono)}
+
+main{padding:20px 24px 48px;max-width:1700px;margin:0 auto}
+.panel{background:var(--s1);border:1px solid var(--s2);border-radius:4px;padding:16px}
+.panel h2{margin:0 0 2px;font:600 15px/20px var(--sans);letter-spacing:-.01em}
+.panel .sub{color:var(--mut);font-size:12px;margin-bottom:12px}
+.grid{display:grid;gap:16px}
+.g-main{grid-template-columns:minmax(0,2fr) minmax(0,1fr)}
+.g-2{grid-template-columns:repeat(2,minmax(0,1fr))}
+@media(max-width:1100px){.g-main,.g-2{grid-template-columns:1fr}}
+
+/* KPI strip */
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:16px}
+.kpi{background:var(--s1);border:1px solid var(--s2);border-radius:4px;padding:12px 14px;position:relative;overflow:hidden}
+.kpi .v{font:600 24px/30px var(--mono);letter-spacing:-.02em;margin:2px 0}
+.kpi .d{font:400 11px/16px var(--mono);color:var(--mut)}
+.kpi.warn{border-color:rgba(217,119,6,.5)} .kpi.warn .v{color:var(--warn)}
+.kpi.bad .v{color:var(--bad)} .kpi.good .v{color:var(--ok)}
+.up-bad{color:var(--bad)} .down-good{color:var(--ok)} .flat{color:var(--idle)}
+.kpi .accent{position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--s3)}
+.kpi.warn .accent{background:var(--warn-d)} .kpi.good .accent{background:var(--ok-d)} .kpi.bad .accent{background:var(--bad-d)}
+
+/* tables */
+.tw{overflow:auto;border:1px solid var(--s2);border-radius:4px}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th{background:var(--s2);color:var(--tx2);font:500 11px/14px var(--mono);letter-spacing:.06em;text-transform:uppercase;text-align:left;padding:9px 12px;border-bottom:1px solid var(--s3);white-space:nowrap;position:sticky;top:0;cursor:pointer;user-select:none}
+th.r,td.r{text-align:right}
+th:hover{color:var(--tx)}
+th .arr{color:var(--ok);margin-left:4px}
+td{padding:8px 12px;border-bottom:1px solid var(--s2);white-space:nowrap;font-family:var(--mono);font-feature-settings:"tnum" 1}
+td.txt{font-family:var(--sans)}
+tbody tr:nth-child(odd){background:var(--s1)} tbody tr:nth-child(even){background:#0b1120}
+tbody tr:hover{background:var(--s2)}
+tr.fresh{animation:fresh 2.4s ease-out}
+@keyframes fresh{0%{background:rgba(52,211,153,.22)}100%{background:transparent}}
+tr.failrow td:first-child{box-shadow:inset 3px 0 var(--bad-d)}
+.muted{color:var(--mut)} .strong{font-weight:600}
+.empty{padding:28px;text-align:center;color:var(--mut);font-family:var(--mono)}
+
+/* chips (square, mono, no pills) */
+.chip{display:inline-block;padding:1px 6px;border-radius:2px;font:500 10.5px/16px var(--mono);letter-spacing:.04em;text-transform:uppercase;border:1px solid;white-space:nowrap}
+.c-ok{background:rgba(5,150,105,.12);color:#34d399;border-color:rgba(5,150,105,.3)}
+.c-bad{background:rgba(220,38,38,.12);color:#f87171;border-color:rgba(220,38,38,.3)}
+.c-warn{background:rgba(217,119,6,.12);color:#fbbf24;border-color:rgba(217,119,6,.3)}
+.c-idle{background:rgba(100,116,139,.12);color:#94a3b8;border-color:rgba(100,116,139,.3)}
+
+/* bars */
+.sbar{display:flex;height:8px;border-radius:2px;overflow:hidden;background:var(--s2);min-width:80px}
+.sbar i{display:block;height:100%}
+.hbar{height:6px;background:var(--s2);border-radius:2px;min-width:60px;position:relative}
+.hbar i{position:absolute;left:0;top:0;bottom:0;border-radius:2px;background:var(--ok-d)}
+.pair{display:flex;align-items:center;gap:8px}
+
+/* tier cards */
+.tiers{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-bottom:16px}
+.tier{background:var(--s1);border:1px solid var(--s2);border-radius:4px;padding:12px 14px}
+.tier .head{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.tier .name{font:600 15px var(--sans)}
+.chain{margin:8px 0;font:400 11.5px/18px var(--mono);color:var(--tx2)}
+.chain b{color:var(--ok);font-weight:500}
+.tier .stats{display:flex;flex-wrap:wrap;gap:6px 16px;font:400 11.5px var(--mono);color:var(--mut)}
+.tier .stats span b{display:block;color:var(--tx);font-weight:500;font-size:13px}
+
+/* feed filters */
+.tools{display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap}
+.tools input{background:var(--s1);border:1px solid var(--s3);color:var(--tx);border-radius:4px;padding:6px 10px;font:12px var(--mono);min-width:280px}
+.tools input:focus{outline:none;border-color:var(--idle)}
+.tools input::placeholder{color:var(--mut)}
+
+/* flow */
+#flowwrap{overflow:auto}
+#flow{display:block;width:100%;min-width:900px}
+#flow text{font:500 11.5px var(--mono);fill:var(--tx)}
+#flow .sub{fill:var(--mut);font-size:10.5px}
+#flow .colhead{fill:var(--mut);font:500 11px var(--mono);letter-spacing:.06em}
+#flow .link{fill:none;transition:opacity .15s}
+#flow .node rect{rx:2}
+#flow .node{cursor:pointer}
+#flow.focus .link:not(.on){opacity:.06}
+#flow.focus .node:not(.on){opacity:.3}
+.legend{display:flex;gap:16px;flex-wrap:wrap;font:400 11.5px var(--mono);color:var(--mut);margin-top:10px}
+.legend i{display:inline-block;width:14px;height:4px;margin-right:6px;vertical-align:middle}
+.note{border:1px solid rgba(217,119,6,.3);background:rgba(217,119,6,.08);color:#fbbf24;border-radius:4px;padding:10px 12px;font:12px/18px var(--sans);margin-bottom:16px}
+.note b{font-family:var(--mono);font-weight:500}
+footer{color:var(--mut);font:11px var(--mono);letter-spacing:.04em;padding:0 24px 24px;display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;max-width:1700px;margin:0 auto}
+/* risk matrix */
+.heat{border-radius:2px;padding:6px 8px;min-width:112px;text-align:right;line-height:16px}
+.heat small{display:block;color:var(--tx2);font-size:10.5px}
+.h-high{background:rgba(220,38,38,.28);border:1px solid rgba(220,38,38,.55)}
+.h-medium{background:rgba(217,119,6,.22);border:1px solid rgba(217,119,6,.5)}
+.h-low{background:rgba(5,150,105,.14);border:1px solid rgba(5,150,105,.35)}
+.h-none{color:var(--mut);text-align:center;border:1px dashed var(--s3)}
+.eras{display:grid;gap:8px;margin-bottom:14px}
+.era{display:grid;grid-template-columns:150px 1fr;gap:12px;align-items:start;padding:8px 10px;border:1px solid var(--s2);border-radius:4px;background:#0b1120}
+.era .when{font:500 11.5px var(--mono);color:var(--tx2)}
+.editor{border:1px solid var(--s3);background:var(--s2);border-radius:4px;padding:12px 14px;margin:10px 0}
+.editor label{display:block;font:500 11px var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--mut);margin:8px 0 3px}
+.editor select,.editor input[type=text]{background:var(--s1);border:1px solid var(--s3);color:var(--tx);border-radius:4px;padding:6px 8px;font:12px var(--mono);width:100%;max-width:520px}
+.editor .row{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+.btn.primary{background:var(--ok-d);border-color:var(--ok-d);color:#fff;font-weight:600}
+.btn.primary:hover{background:#047857}
+.msg{font:12px var(--mono);margin-top:8px}
+.msg.err{color:var(--bad)} .msg.ok{color:var(--ok)}
+/* controls */
+.cgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(400px,1fr));gap:12px;margin-bottom:16px}
+.cc{background:var(--s1);border:1px solid var(--s2);border-radius:4px;padding:12px 14px}
+.cc.dirty{border-color:var(--warn)}
+.cc .head{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px}
+.cc .name{font:600 15px var(--sans)}
+.mrow{display:grid;grid-template-columns:70px 1fr auto;gap:8px;align-items:center;padding:6px 0;border-top:1px solid var(--s2)}
+.mrow .role{font:500 10.5px var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--mut)}
+.mrow .mid{font:500 12px var(--mono);word-break:break-all}
+.mrow .px{font:400 11px var(--mono);color:var(--tx2);margin-top:2px}
+.mrow .acts{display:flex;gap:4px}
+.btn.sm{padding:3px 8px;font-size:11px}
+.cc select,.cc input[type=text],.picker input[type=text]{background:var(--s1);border:1px solid var(--s3);color:var(--tx);border-radius:4px;padding:6px 8px;font:12px var(--mono)}
+.cc .foot{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px}
+.picker{border:1px solid var(--s3);background:var(--s2);border-radius:4px;padding:12px 14px;margin-bottom:16px}
+.tools input[type=checkbox]{min-width:0;width:auto;margin-right:4px;vertical-align:middle}
+.picker label.chk{font:12px var(--mono);color:var(--tx2);margin-right:12px;cursor:pointer}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <div class="brand"><div class="label">Model Router</div><h1>Control Center</h1></div>
+    <div class="live" id="live"><span class="dot"></span><span class="mono" id="livetext" style="font-size:12px">connecting</span></div>
+    <div class="spacer"></div>
+    <div class="seg" id="windows" role="group" aria-label="Time window"></div>
+    <button class="btn" id="synth" aria-pressed="false" title="Include benchmark / probe traffic">+ benchmark traffic</button>
+    <button class="btn" id="pause" aria-pressed="false">Pause</button>
+  </div>
+  <nav class="tabs" role="tablist" id="tabs">
+    <button role="tab" data-tab="live" aria-selected="true">Live</button>
+    <button role="tab" data-tab="callers" aria-selected="false">Callers</button>
+    <button role="tab" data-tab="models" aria-selected="false">Models &amp; Tiers</button>
+    <button role="tab" data-tab="flow" aria-selected="false">Flow</button>
+    <button role="tab" data-tab="risk" aria-selected="false">Risk</button>
+    <button role="tab" data-tab="controls" aria-selected="false">Controls</button>
+    <button role="tab" data-tab="egress" aria-selected="false">Egress</button>
+    <button role="tab" data-tab="inbound" aria-selected="false">Inbound</button>
+  </nav>
+  <div id="banner"></div>
+</header>
+
+<main>
+  <section class="kpis" id="kpis"></section>
+  <div id="attrnote"></div>
+
+  <section data-pane="live">
+    <div class="grid g-main">
+      <div class="panel"><h2>Traffic &amp; spend</h2><div class="sub" id="chart-sub">requests per bucket (ok / failed) and spend</div><div style="height:330px"><canvas id="c-traffic"></canvas></div></div>
+      <div class="panel"><h2>Spend by tier</h2><div class="sub">where the money goes in this window</div><div id="tierspend"></div>
+        <h2 style="margin-top:18px">p95 latency</h2><div class="sub">per bucket</div><div style="height:110px"><canvas id="c-lat"></canvas></div></div>
+    </div>
+    <div class="panel" style="margin-top:16px">
+      <h2>Live call feed</h2><div class="sub">newest first · prompts and responses are never stored or shown</div>
+      <div class="tools">
+        <input id="feedq" placeholder="filter caller / model / tier…" autocomplete="off">
+        <button class="btn" id="feedfail" aria-pressed="false">Problems only</button>
+        <span class="label" id="feedcount"></span>
+      </div>
+      <div class="tw" style="max-height:520px"><table id="feed"><thead><tr>
+        <th>Time</th><th>Caller</th><th>Tier</th><th>Model</th><th class="r">Latency</th><th class="r">In</th><th class="r">Out</th><th class="r">Cost</th><th>Result</th>
+      </tr></thead><tbody></tbody></table></div>
+    </div>
+  </section>
+
+  <section data-pane="callers" hidden>
+    <div id="untagged"></div>
+    <div class="panel"><h2>Who is using what</h2><div class="sub">every caller in this window — click a column to sort</div>
+      <div class="tw"><table id="callers"></table></div></div>
+  </section>
+
+  <section data-pane="models" hidden>
+    <div class="tiers" id="tiercards"></div>
+    <div class="panel"><h2>Model scorecard</h2>
+      <div class="sub">Reliability is a proxy: success × not truncated × not empty × few fallbacks. It cannot tell whether an answer was <em>right</em>.</div>
+      <div class="tw"><table id="models"></table></div></div>
+  </section>
+
+  <section data-pane="flow" hidden>
+    <div class="panel"><h2>Routing flow</h2>
+      <div class="sub">callers → tiers → the model that actually served. Hover or click a node to isolate its routes.</div>
+      <div class="tools"><div class="seg" id="flowmetric"><button data-m="requests" aria-pressed="true">Requests</button><button data-m="cost" aria-pressed="false">Spend</button></div></div>
+      <div id="flowwrap"><svg id="flow" xmlns="http://www.w3.org/2000/svg"></svg></div>
+      <div class="legend">
+        <span><i style="background:#475569"></i>healthy route</span>
+        <span><i style="background:#d97706"></i>≥10% served via fallback</span>
+        <span><i style="background:#dc2626"></i>≥5% failures</span>
+        <span>⚠ served outside its tier's configured chain (config changed, or a probe)</span>
+        <span><i style="background:#334155;height:0;border-top:2px dashed #64748b"></i>configured, no traffic</span>
+      </div>
+    </div>
+  </section>
+  <section data-pane="controls" hidden>
+    <div class="note" style="border-color:rgba(100,116,139,.4);background:rgba(100,116,139,.08);color:var(--tx2)">
+      <b>Changes apply to the next request</b> (no restart). Each save validates the config, makes a timestamped backup and can be undone below. Prices are OpenRouter list prices, blended at your recent input:output mix.
+    </div>
+    <div class="tools"><button class="btn" id="ctl-new">+ New tier</button><button class="btn" id="ctl-refresh">Refresh</button><span class="label" id="ctl-status"></span></div>
+    <div class="cgrid" id="ctl-tiers"></div>
+    <div id="ctl-picker"></div>
+    <div class="panel"><h2>Recent changes</h2><div class="sub">undo restores the config as it was before that change (the current file is backed up first)</div><div id="ctl-audit"></div></div>
+  </section>
+  <section data-pane="egress" hidden>
+    <div id="eg-status"></div>
+    <div class="kpis" id="eg-kpis"></div>
+    <div id="eg-gap"></div>
+    <div id="eg-msg"></div>
+    <div id="eg-block"></div>
+    <div class="panel"><h2>AI providers reached</h2><div class="sub">every provider any program on this machine held a connection to (window from the top bar)</div><div class="tw"><table id="eg-prov"></table></div></div>
+    <div class="panel" style="margin-top:16px"><h2>Programs</h2><div class="sub">which program talked to which provider — "via router" means the call went through your router and is in the other tabs</div><div class="tw"><table id="eg-proc"></table></div></div>
+    <div class="panel" style="margin-top:16px"><h2>Connected right now</h2><div class="tw"><table id="eg-active"></table></div></div>
+    <div class="panel" style="margin-top:16px"><h2>Active blocks</h2><div class="sub">Windows Firewall rules created by this tool. Creating or removing one needs a Windows admin prompt, so each change is a script you download and approve.</div><div id="eg-blocks"></div></div>
+    <div class="panel" style="margin-top:16px"><h2>Unidentified connections</h2><div class="sub">programs holding HTTPS connections to hosts the collector could not name. Most are ordinary; an AI service not in <span class="mono">egress_domains.json</span> would show up here.</div><div id="eg-unres"></div></div>
+    <div class="sub" id="eg-caveat" style="margin-top:12px"></div>
+  </section>
+  <section data-pane="inbound" hidden>
+    <div id="in-status"></div>
+    <div class="kpis" id="in-kpis"></div>
+    <div class="panel"><h2>Who calls your router</h2><div class="sub">local programs that connected to the router's port, seen from the operating system. This catches callers that send no agent tag, so it complements the caller names in the other tabs.</div><div class="tw"><table id="in-clients"></table></div></div>
+    <div class="panel" style="margin-top:16px"><h2>Connections from other machines</h2><div class="sub">other devices (your network, Tailscale, or the internet) that connected to a port on this PC</div><div class="tw"><table id="in-peers"></table></div></div>
+    <div class="panel" style="margin-top:16px"><h2>Listening ports</h2><div class="sub">programs waiting for connections. Anything marked <b>network</b> accepts connections beyond this PC, subject to Windows Firewall.</div><div class="tw"><table id="in-listen"></table></div></div>
+    <div class="sub" id="in-caveat" style="margin-top:12px"></div>
+  </section>
+  <section data-pane="risk" hidden>
+    <div class="note" style="border-color:rgba(100,116,139,.4);background:rgba(100,116,139,.08);color:var(--tx2)">
+      <b>Estimated exposure, not confirmed leakage.</b> Telemetry holds no content, so this scores each agent's traffic by <b>how likely it carried sensitive data</b> (its declared profile) × <b>how weak the privacy protection was</b> when it was sent. A policy in force is not proof of how a provider behaved.
+    </div>
+    <div class="tools"><div class="seg" id="riskwin"><button data-w="all" aria-pressed="true">All time</button><button data-w="7d" aria-pressed="false">7 days</button><button data-w="24h" aria-pressed="false">24 hours</button></div>
+      <button class="btn" id="riskrefresh">Refresh</button><span class="label" id="riskstamp"></span></div>
+    <div class="kpis" id="riskkpis"></div>
+    <div class="panel" style="margin-bottom:16px"><h2>Privacy protection over time</h2><div class="sub">the provider policy each tier enforced, by period (from your config history)</div><div class="eras" id="eras"></div></div>
+    <div class="panel"><h2>Exposure matrix</h2>
+      <div class="sub">Rows are agents. Each cell shows input tokens sent under that protection level; color is likelihood × exposure. Click an agent to set its data profile.</div>
+      <div class="tools"><button class="btn" id="applydrafts">Apply drafts to unprofiled agents</button><span class="label" id="draftcount"></span></div>
+      <div id="editor"></div>
+      <div class="tw"><table id="riskmatrix"></table></div>
+      <div class="legend"><span><i style="background:#dc2626"></i>high (≥0.5)</span><span><i style="background:#d97706"></i>medium (≥0.2)</span><span><i style="background:#059669"></i>low</span><span>score = likelihood × exposure (none 1.0 · no data collection 0.5 · zero retention 0.15)</span></div>
+    </div>
+    <div class="panel" style="margin-top:16px"><h2>Recent changes</h2><div class="sub">every write the Control Center made to your config (a backup exists for each)</div><div id="audit"></div></div>
+  </section>
+</main>
+<footer><span id="foot-left">—</span><span>NO PROMPTS · NO RESPONSES · OPERATIONAL TELEMETRY ONLY</span></footer>
+
+<script src="/dashboard/vendor/chart.umd.min.js"></script>
+<script>
+"use strict";
+const $ = (s, r=document) => r.querySelector(s);
+const $$ = (s, r=document) => [...r.querySelectorAll(s)];
+const esc = v => String(v ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+const state = { window: "1h", synth: false, paused: false, tab: "live", data: null, lastId: 0,
+                sort: {callers:["cost",-1], models:["cost",-1]}, flowMetric: "requests", flowFocus: null,
+                feedQ: "", feedFail: false, failures: 0 };
+try { Object.assign(state, JSON.parse(localStorage.getItem("ctl") || "{}"), {data:null,lastId:0,failures:0,paused:false}); } catch(e){}
+const save = () => { try { localStorage.setItem("ctl", JSON.stringify({window:state.window,synth:state.synth,tab:state.tab,flowMetric:state.flowMetric})); } catch(e){} };
+
+/* ---------- formatting ---------- */
+const money = v => v == null ? "—" : v === 0 ? "$0" : Math.abs(v) < 0.01 ? "$" + v.toFixed(4) : Math.abs(v) < 100 ? "$" + v.toFixed(2) : "$" + Math.round(v).toLocaleString();
+const ms = v => v == null ? "—" : v >= 60000 ? (v/60000).toFixed(1) + "m" : v >= 1000 ? (v/1000).toFixed(1) + "s" : Math.round(v) + "ms";
+const pct = (v, d=1) => v == null ? "—" : v.toFixed(d) + "%";
+const int = v => v == null ? "—" : Math.round(v).toLocaleString();
+const short = m => String(m || "—").replace(/^~/, "").split("/").pop();
+const when = iso => { const d = new Date(iso); return isNaN(d) ? "—" : d.toLocaleTimeString([], {hour12:false}); };
+const ago = iso => { const s = Math.max(0, (Date.now() - new Date(iso)) / 1000); return !iso ? "—" : s < 90 ? Math.round(s) + "s ago" : s < 5400 ? Math.round(s/60) + "m ago" : s < 129600 ? Math.round(s/3600) + "h ago" : Math.round(s/86400) + "d ago"; };
+const chip = (cls, text, title="") => `<span class="chip c-${cls}" ${title ? `title="${esc(title)}"` : ""}>${esc(text)}</span>`;
+const kindChip = k => k === "unattributed" ? chip("warn","untagged","No caller tag was sent with these calls") : k === "synthetic" ? chip("idle","benchmark") : "";
+
+/* ---------- top bar ---------- */
+const WINDOWS = ["15m","1h","6h","24h","7d","all"];
+$("#windows").innerHTML = WINDOWS.map(w => `<button data-w="${w}" aria-pressed="${w===state.window}">${w}</button>`).join("");
+$("#windows").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; state.window = b.dataset.w; state.lastId = 0; save(); syncControls(); load(); });
+$("#synth").addEventListener("click", () => { state.synth = !state.synth; save(); syncControls(); load(); });
+$("#pause").addEventListener("click", () => { state.paused = !state.paused; syncControls(); if (!state.paused) load(); });
+$("#tabs").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; setTab(b.dataset.tab); });
+function setTab(t){ state.tab = t; save(); syncControls(); render(); if (t === "risk") loadRisk(); if (t === "controls") loadCtl(); if (t === "egress") loadEgress(); if (t === "inbound") loadInbound(); }
+function syncControls(){
+  $$("#windows button").forEach(b => b.setAttribute("aria-pressed", b.dataset.w === state.window));
+  $("#synth").setAttribute("aria-pressed", state.synth);
+  $("#pause").setAttribute("aria-pressed", state.paused); $("#pause").textContent = state.paused ? "Resume" : "Pause";
+  $$("#tabs button").forEach(b => b.setAttribute("aria-selected", b.dataset.tab === state.tab));
+  $$("[data-pane]").forEach(p => p.hidden = p.dataset.pane !== state.tab);
+  const wide = ["risk","controls","egress","inbound"].includes(state.tab); $("#kpis").hidden = wide; $("#attrnote").hidden = wide;
+  const live = $("#live"); live.className = "live" + (state.paused ? " paused" : state.failures ? " err" : "");
+}
+
+/* ---------- data ---------- */
+let timer = null, inflight = false;
+async function load(){
+  if (inflight) return; inflight = true;
+  try {
+    const r = await fetch(`/api/control/overview?window=${state.window}&include_synthetic=${state.synth}`, {cache:"no-store"});
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    state.data = await r.json(); state.failures = 0; $("#banner").style.display = "none";
+    render();
+  } catch (e) {
+    state.failures++; $("#banner").style.display = "block"; $("#banner").textContent = "CONTROL API UNREACHABLE — " + e.message + " — retrying";
+  } finally { inflight = false; syncControls(); }
+}
+function schedule(){ clearInterval(timer); timer = setInterval(() => { if (!state.paused && !document.hidden) load(); }, 3000); }
+document.addEventListener("visibilitychange", () => { if (!document.hidden && !state.paused) load(); });
+setInterval(() => { if (state.data) $("#livetext").textContent = state.paused ? "PAUSED" : state.failures ? "OFFLINE" : "LIVE · updated " + ago(state.data.generated_at).replace(" ago","") + " ago"; }, 1000);
+
+/* ---------- render ---------- */
+function render(){
+  const d = state.data; if (!d) return;
+  renderKpis(d); renderAttr(d);
+  if (state.tab === "live") { renderCharts(d); renderTierSpend(d); renderFeed(d); }
+  if (state.tab === "callers") { renderUntagged(d); renderCallers(d); }
+  if (state.tab === "models") { renderTierCards(d); renderModels(d); }
+  if (state.tab === "flow") renderFlow(d);
+  if (state.tab === "egress") { if (state.egress) renderEgress(); loadEgress(); }
+  if (state.tab === "inbound") { if (state.inbound) renderInbound(); loadInbound(); }
+  $("#foot-left").textContent = `WINDOW ${d.window.toUpperCase()} · SINCE ${new Date(d.start).toLocaleString()}` + (d.synthetic_rows_hidden ? ` · ${d.synthetic_rows_hidden} BENCHMARK ROWS HIDDEN` : "");
+  $("#livetext").textContent = state.paused ? "PAUSED" : "LIVE · updated 0s ago";
+}
+
+function delta(cur, prev, {lowerBetter=null, fmt=int, unit=""}={}){
+  if (prev == null || cur == null || prev === 0 && cur === 0) return `<span class="flat">— vs prev</span>`;
+  if (prev === 0) return `<span class="flat">new vs prev</span>`;
+  const ch = (cur - prev) / Math.abs(prev) * 100;
+  if (Math.abs(ch) < 1) return `<span class="flat">≈ prev</span>`;
+  const up = ch > 0, cls = lowerBetter == null ? "flat" : (up === lowerBetter ? "up-bad" : "down-good");
+  return `<span class="${cls}">${up ? "▲" : "▼"} ${Math.abs(ch).toFixed(0)}%</span> <span class="flat">vs prev</span>`;
+}
+function renderKpis(d){
+  const k = d.kpis, p = d.prior;
+  const tiles = [
+    {l:"Requests", v:int(k.requests), d:`${k.requests_per_minute}/min · ` + delta(k.requests, p && p.requests)},
+    {l:"Spend", v:money(k.cost), d:`${money(k.spend_per_hour)}/hr · ` + delta(k.cost, p && p.cost, {lowerBetter:true})},
+    {l:"Success", v:pct(k.success_rate), cls: k.success_rate == null ? "" : k.success_rate >= 99 ? "good" : k.success_rate >= 95 ? "warn" : "bad", d:`${int(k.failed)} failed · ` + delta(k.success_rate, p && p.success_rate, {lowerBetter:false})},
+    {l:"Latency p95", v:ms(k.p95_ms), d:`p50 ${ms(k.p50_ms)} · ` + delta(k.p95_ms, p && p.p95_ms, {lowerBetter:true})},
+    {l:"Fallbacks", v:pct(k.fallback_rate), cls: (k.fallback_rate||0) > 15 ? "warn" : "", d:`primary failed, backup served`},
+    {l:"Reliability", v: k.reliability == null ? "—" : k.reliability.toFixed(1), cls: k.reliability == null ? "" : k.reliability >= 95 ? "good" : k.reliability >= 85 ? "warn" : "bad", d:`proxy · trunc ${pct(k.truncation_rate)} · empty ${pct(k.empty_rate)}`},
+    {l:"Untagged spend", v:pct(k.unattributed_share), cls: k.unattributed_share > 10 ? "warn" : "good", d:`${money(k.unattributed_cost)} · ${int(k.unattributed_requests)} calls`},
+  ];
+  $("#kpis").innerHTML = tiles.map(t => `<div class="kpi ${t.cls||""}"><span class="accent"></span><div class="label">${t.l}</div><div class="v">${t.v}</div><div class="d">${t.d}</div></div>`).join("");
+}
+function renderAttr(d){
+  const k = d.kpis;
+  $("#attrnote").innerHTML = k.unattributed_share > 10 && k.cost > 0
+    ? `<div class="note"><b>${pct(k.unattributed_share,0)} of spend (${money(k.unattributed_cost)}) has no caller tag.</b> Those calls can't be attributed to OpenClaw, Claude, ChatGPT or any other client. Set an <span class="mono">x-openclaw-agent</span> header or a <span class="mono">model#name</span> tag in each client to make every call traceable. <a href="#" id="seeunt">See untagged callers →</a></div>` : "";
+  const a = $("#seeunt"); if (a) a.onclick = e => { e.preventDefault(); setTab("callers"); };
+}
+
+/* ---------- untagged traffic ---------- */
+function renderUntagged(d){
+  const el = $("#untagged"), list = d.untagged_hints || [];
+  const help = `<details class="panel" style="margin-bottom:16px"><summary class="strong" style="cursor:pointer">How to tag a client (three ways, strongest first)</summary>
+    <div class="sub" style="margin:10px 0 0;line-height:20px">
+      <b class="mono">1 · Model suffix</b> — works in any client where you can edit the model name: <span class="mono">balanced#claude</span>. The part after <span class="mono">#</span> becomes the caller.<br>
+      <b class="mono">2 · Header</b> — <span class="mono">X-Router-Client: chatgpt</span> (or <span class="mono">X-OpenClaw-Agent</span>) for clients that can send custom headers.<br>
+      <b class="mono">3 · Config mapping</b> — for clients you can't change: add <span class="mono">"client_labels": {"python-httpx": "my-script"}</span> to <span class="mono">router_config.json</span>. Matching is by User-Agent product name, and no restart is needed.
+    </div></details>`;
+  if (!list.length) { el.innerHTML = help; return; }
+  const rows = list.map(h => `<tr><td class="strong">${esc(h.hint)}</td><td class="r">${int(h.requests)}</td><td class="r">${money(h.cost)}</td>
+      <td class="muted">${h.tiers.map(t => esc(t.name)).join(", ")}</td><td class="muted" title="${esc(h.models.map(m => m.name).join(", "))}">${esc(short(h.models[0]?.name))}</td><td class="muted">${ago(h.last_seen)}</td>
+      <td>${h.hint === "(not recorded)" ? '<span class="muted">older calls — hint not captured yet</span>' : `<code class="mono" style="color:var(--ok)">"${esc(h.hint)}": "name-it"</code>`}</td></tr>`).join("");
+  el.innerHTML = `<div class="panel" style="margin-bottom:16px;border-color:rgba(217,119,6,.4)"><h2>Untagged traffic — who is it?</h2>
+    <div class="sub">These calls sent no caller name. The <b>client</b> column is the software that sent them (User-Agent product name only). Name one in <span class="mono">router_config.json → client_labels</span> and it becomes a caller.</div>
+    <div class="tw"><table><thead><tr><th>Client</th><th class="r">Calls</th><th class="r">Spend</th><th>Tiers</th><th>Top model</th><th>Last seen</th><th>Add to client_labels</th></tr></thead><tbody>${rows}</tbody></table></div></div>` + help;
+}
+
+/* ---------- charts ---------- */
+Chart.defaults.color = "#94a3b8"; Chart.defaults.font.family = '"JetBrains Mono",monospace'; Chart.defaults.font.size = 10.5;
+let chT = null, chL = null;
+const labelFor = (iso, d) => { const dt = new Date(iso); return d.bucket_seconds >= 86400 ? dt.toLocaleDateString([], {month:"short",day:"numeric"}) : d.bucket_seconds >= 3600 ? dt.toLocaleString([], {weekday:"short",hour:"numeric"}) : dt.toLocaleTimeString([], {hour:"2-digit",minute:"2-digit",hour12:false}); };
+function renderCharts(d){
+  const labels = d.series.map(s => labelFor(s.t, d));
+  const ok = d.series.map(s => s.requests - s.failed), bad = d.series.map(s => s.failed), cost = d.series.map(s => s.cost);
+  const grid = {color:"rgba(51,65,85,.45)"}, ticks = {maxTicksLimit:8, maxRotation:0};
+  if (!chT) {
+    chT = new Chart($("#c-traffic"), {data:{labels, datasets:[
+      {type:"bar", label:"ok", data:ok, backgroundColor:"#059669", stack:"r", yAxisID:"y", borderRadius:1},
+      {type:"bar", label:"failed", data:bad, backgroundColor:"#dc2626", stack:"r", yAxisID:"y", borderRadius:1},
+      {type:"line", label:"spend", data:cost, borderColor:"#fbbf24", backgroundColor:"#fbbf24", borderWidth:1.5, pointRadius:0, tension:.25, yAxisID:"y2"}]},
+      options:{animation:false, maintainAspectRatio:false, interaction:{mode:"index",intersect:false}, plugins:{legend:{labels:{boxWidth:10,boxHeight:10}}},
+        scales:{x:{stacked:true,grid:{display:false},ticks}, y:{stacked:true,grid,beginAtZero:true,title:{display:true,text:"requests"}}, y2:{position:"right",grid:{display:false},beginAtZero:true,title:{display:true,text:"spend $"}}}}});
+  } else { chT.data.labels = labels; chT.data.datasets[0].data = ok; chT.data.datasets[1].data = bad; chT.data.datasets[2].data = cost; chT.update("none"); }
+  const lat = d.series.map(s => s.p95_ms);
+  if (!chL) {
+    chL = new Chart($("#c-lat"), {type:"line", data:{labels, datasets:[{label:"p95 ms", data:lat, borderColor:"#94a3b8", borderWidth:1.5, pointRadius:0, tension:.25, spanGaps:true, fill:true, backgroundColor:"rgba(148,163,184,.08)"}]},
+      options:{animation:false, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{x:{display:false}, y:{grid,beginAtZero:true,ticks:{maxTicksLimit:4,callback:v=>ms(v)}}}}});
+  } else { chL.data.labels = labels; chL.data.datasets[0].data = lat; chL.update("none"); }
+}
+function renderTierSpend(d){
+  const tiers = d.tiers.filter(t => t.requests > 0), total = d.kpis.cost || 0;
+  $("#tierspend").innerHTML = tiers.length ? tiers.map(t => {
+    const share = total ? t.cost * 100 / total : 0;
+    return `<div style="margin-bottom:10px"><div class="pair" style="justify-content:space-between"><span class="strong">${esc(t.name)}</span><span class="mono">${money(t.cost)} <span class="muted">· ${share.toFixed(0)}%</span></span></div>
+      <div class="hbar" style="margin:4px 0"><i style="width:${Math.max(share, share>0?1.5:0)}%"></i></div>
+      <div class="label">${int(t.requests)} calls · ${money(t.cost_per_request)}/call · p95 ${ms(t.p95_ms)}</div></div>`;
+  }).join("") : `<div class="empty">no traffic in window</div>`;
+}
+
+/* ---------- feed ---------- */
+function resultChips(r){
+  const out = [];
+  if (!r.ok) out.push(chip("bad", String(r.status ?? "ERR")));
+  else out.push(chip("ok", "OK"));
+  if (r.fallbacks) out.push(chip("warn", "FB×" + r.fallbacks, "primary model failed; a fallback served this call"));
+  if (r.finish === "length") out.push(chip("warn", "TRUNC", "stopped at the output token limit"));
+  if (r.empty) out.push(chip("warn", "EMPTY", "success with zero output tokens"));
+  if (r.cost === 0 && r.ok) out.push(chip("idle", "FREE"));
+  return out.join(" ");
+}
+function renderFeed(d){
+  const q = state.feedQ.trim().toLowerCase();
+  let rows = d.feed;
+  if (q) rows = rows.filter(r => [r.caller, r.model, r.tier].some(v => String(v||"").toLowerCase().includes(q)));
+  if (state.feedFail) rows = rows.filter(r => !r.ok || r.fallbacks || r.finish === "length" || r.empty);
+  const maxId = Math.max(0, ...d.feed.map(r => r.id || 0)), prev = state.lastId; state.lastId = maxId;
+  $("#feedcount").textContent = `${rows.length} of last ${d.feed.length}`;
+  const body = $("#feed tbody");
+  body.innerHTML = rows.length ? rows.map(r => `<tr class="${!r.ok ? "failrow " : ""}${prev && r.id > prev ? "fresh" : ""}">
+    <td>${when(r.t)}</td><td class="txt strong">${esc(r.caller)}</td><td class="muted">${esc(r.tier || "—")}</td><td title="${esc(r.model)}">${esc(short(r.model))}</td>
+    <td class="r">${ms(r.latency_ms)}</td><td class="r muted">${int(r.in)}</td><td class="r muted">${int(r.out)}</td><td class="r">${money(r.cost)}</td><td>${resultChips(r)}</td></tr>`).join("")
+    : `<tr><td colspan="9" class="empty">no calls match</td></tr>`;
+}
+$("#feedq").addEventListener("input", e => { state.feedQ = e.target.value; render(); });
+$("#feedfail").addEventListener("click", e => { state.feedFail = !state.feedFail; e.currentTarget.setAttribute("aria-pressed", state.feedFail); render(); });
+
+/* ---------- sortable tables ---------- */
+function table(el, key, cols, rows){
+  const [sk, dir] = state.sort[key];
+  const sorted = [...rows].sort((a,b) => { const x = cols.find(c => c.k === sk).v(a), y = cols.find(c => c.k === sk).v(b);
+    if (x == null && y == null) return 0; if (x == null) return 1; if (y == null) return -1; return (typeof x === "string" ? x.localeCompare(y) : x - y) * dir; });
+  el.innerHTML = `<thead><tr>${cols.map(c => `<th class="${c.r ? "r" : ""}" data-k="${c.k}" title="${esc(c.tip||"")}">${c.h}${c.k === sk ? `<span class="arr">${dir > 0 ? "▲" : "▼"}</span>` : ""}</th>`).join("")}</tr></thead>
+    <tbody>${sorted.length ? sorted.map(r => `<tr>${cols.map(c => `<td class="${c.r ? "r " : ""}${c.txt ? "txt" : ""}">${c.f(r)}</td>`).join("")}</tr>`).join("") : `<tr><td colspan="${cols.length}" class="empty">no traffic in this window</td></tr>`}</tbody>`;
+  $$("th", el).forEach(th => th.onclick = () => { const k = th.dataset.k; state.sort[key] = [k, sk === k ? -dir : -1]; render(); });
+}
+const stateBar = r => { const n = r.requests || 1, ok = r.ok - (r.fallback_rate||0)*r.requests/100, fb = (r.fallback_rate||0)*r.requests/100, bad = r.failed;
+  return `<div class="sbar" title="${r.ok} ok · ${r.failed} failed · ${Math.round(fb)} via fallback"><i style="width:${(r.ok - fb)*100/n}%;background:#059669"></i><i style="width:${fb*100/n}%;background:#d97706"></i><i style="width:${bad*100/n}%;background:#dc2626"></i></div>`; };
+const rateChip = (v, good, warn, invert=false) => v == null ? "—" : `<span style="color:${(invert ? v <= good : v >= good) ? "var(--ok)" : (invert ? v <= warn : v >= warn) ? "var(--warn)" : "var(--bad)"}">${pct(v)}</span>`;
+const mix = list => list.map(x => `${esc(short(x.name))} ${x.share.toFixed(0)}%`).join(" · ");
+
+function renderCallers(d){
+  table($("#callers"), "callers", [
+    {k:"name", h:"Caller", txt:1, v:r=>r.name, f:r => `<span class="strong">${esc(r.name)}</span> ${kindChip(r.kind)}`},
+    {k:"requests", h:"Calls", r:1, v:r=>r.requests, f:r => `${int(r.requests)} <span class="muted">${r.share_requests}%</span>`},
+    {k:"cost", h:"Spend", r:1, v:r=>r.cost, f:r => `<div class="pair" style="justify-content:flex-end"><div class="hbar" style="width:70px"><i style="width:${r.share_cost}%;background:var(--warn-d)"></i></div><span>${money(r.cost)} <span class="muted">${r.share_cost}%</span></span></div>`},
+    {k:"cpr", h:"$ / call", r:1, v:r=>r.cost_per_request, f:r => money(r.cost_per_request)},
+    {k:"health", h:"Outcome", v:r=>r.success_rate, tip:"green ok · amber served by fallback · red failed", f:r => `<div class="pair">${stateBar(r)}<span>${rateChip(r.success_rate, 99, 95)}</span></div>`},
+    {k:"p95", h:"p95", r:1, v:r=>r.p95_ms, f:r => ms(r.p95_ms)},
+    {k:"tiers", h:"Tiers used", txt:1, v:r=>r.tiers[0]?.name||"", f:r => `<span class="muted mono">${mix(r.tiers)}</span>`},
+    {k:"models", h:"Top models", txt:1, v:r=>r.models[0]?.name||"", f:r => `<span class="muted mono">${mix(r.models.slice(0,1))}</span>`},
+    {k:"tools", h:"Tools", r:1, v:r=>r.tools_share, tip:"share of calls that sent tool definitions", f:r => pct(r.tools_share,0)},
+    {k:"avgin", h:"Avg in", r:1, v:r=>r.avg_input_tokens, f:r => int(r.avg_input_tokens)},
+    {k:"last", h:"Last seen", v:r=>r.last_seen, f:r => `<span class="muted">${ago(r.last_seen)}</span>`},
+  ], d.callers);
+}
+function renderTierCards(d){
+  $("#tiercards").innerHTML = d.tiers.map(t => {
+    const pol = Object.entries(t.policy || {}).map(([k,v]) => chip("ok", `${k}${v === true ? "" : "=" + v}`)).join(" ");
+    const chain = t.primary ? `<b>${esc(short(t.primary))}</b>` + t.fallbacks.map(f => ` → ${esc(short(f))}`).join("") : `<span class="muted">not in router_config.json</span>`;
+    return `<div class="tier"><div class="head"><span class="name">${esc(t.name)}</span><span>${t.configured ? (pol || chip("warn","no privacy policy")) : chip("bad","off-config")}</span></div>
+      <div class="chain">${chain}</div>
+      <div class="stats"><span>calls<b>${int(t.requests)}</b></span><span>spend<b>${money(t.cost)}</b></span><span>$/call<b>${money(t.cost_per_request)}</b></span><span>p95<b>${ms(t.p95_ms)}</b></span><span>success<b>${pct(t.success_rate)}</b></span></div></div>`;
+  }).join("");
+}
+function renderModels(d){
+  table($("#models"), "models", [
+    {k:"name", h:"Model", txt:1, v:r=>r.name, f:r => `<span class="strong" title="${esc(r.name)}">${esc(short(r.name))}</span> ${r.is_free ? chip("ok","free") : ""} ${r.off_config ? chip("warn","not in config","served in this window but not in any tier's chain right now") : ""}`},
+    {k:"tiers", h:"Tiers", txt:1, v:r=>r.tiers[0]?.name||"", f:r => `<span class="muted mono">${r.tiers.map(t=>esc(t.name)).join(", ")}</span>`},
+    {k:"requests", h:"Calls", r:1, v:r=>r.requests, f:r => int(r.requests)},
+    {k:"cost", h:"Spend", r:1, v:r=>r.cost, f:r => `${money(r.cost)} <span class="muted">${r.share_cost}%</span>`},
+    {k:"cpr", h:"$ / call", r:1, v:r=>r.cost_per_request, f:r => money(r.cost_per_request)},
+    {k:"cpm", h:"$ / 1M out", r:1, v:r=>r.cost_per_m_output, tip:"spend ÷ output tokens × 1M — compare models on cost of what they write", f:r => money(r.cost_per_m_output)},
+    {k:"p50", h:"p50", r:1, v:r=>r.p50_ms, f:r => ms(r.p50_ms)},
+    {k:"p95", h:"p95", r:1, v:r=>r.p95_ms, f:r => ms(r.p95_ms)},
+    {k:"succ", h:"Success", r:1, v:r=>r.success_rate, f:r => rateChip(r.success_rate, 99, 95)},
+    {k:"trunc", h:"Truncated", r:1, v:r=>r.truncation_rate, tip:"stopped at the output token limit", f:r => rateChip(r.truncation_rate, 1, 5, true)},
+    {k:"fb", h:"As fallback", r:1, v:r=>r.fallback_rate, tip:"share of its calls served only because an earlier model failed (high = it is the rescue, not the fault)", f:r => pct(r.fallback_rate)},
+    {k:"rel", h:"Reliability", v:r=>r.reliability, f:r => r.reliability == null ? "—" : `<div class="pair"><div class="hbar" style="width:70px"><i style="width:${r.reliability}%;background:${r.reliability >= 95 ? "var(--ok-d)" : r.reliability >= 85 ? "var(--warn-d)" : "var(--bad-d)"}"></i></div><span>${r.reliability.toFixed(0)}</span></div>`},
+  ], d.models);
+}
+
+/* ---------- flow (sankey-style) ---------- */
+function renderFlow(d){
+  const svg = $("#flow"), m = state.flowMetric, F = d.flow;
+  const val = o => m === "cost" ? o.cost : o.requests;
+  const cols = [["caller",["caller","synthetic","unknown"]], ["tier",["tier"]], ["model",["model"]]];
+  const byCol = cols.map(([,kinds]) => F.nodes.filter(n => kinds.includes(n.kind)));
+  const nodeIds = new Set(F.nodes.map(n => n.id));
+  const edges = F.edges.filter(e => nodeIds.has(e.from) && nodeIds.has(e.to));
+  if (!F.nodes.some(n => val(n) > 0)) { svg.innerHTML = ""; svg.setAttribute("height", 80); svg.innerHTML = `<text x="20" y="40" class="sub">no traffic in this window</text>`; return; }
+  const W = Math.max(900, svg.parentElement.clientWidth), colW = 150, padX = 150, H0 = 520;
+  const xs = [padX, (W - colW) / 2, W - colW - padX + 40].map(x => Math.max(10, x));
+  const GAP = 8, MINH = 16;
+  byCol.forEach(c => c.sort((a,b) => val(b) - val(a) || b.requests - a.requests));
+  const through = new Map();
+  edges.forEach(e => { through.set(e.from, (through.get(e.from) || 0) + val(e)); through.set(e.to, (through.get(e.to) || 0) + 0); });
+  const inSum = new Map(), outSum = new Map();
+  edges.forEach(e => { outSum.set(e.from, (outSum.get(e.from)||0) + val(e)); inSum.set(e.to, (inSum.get(e.to)||0) + val(e)); });
+  const nv = n => Math.max(inSum.get(n.id)||0, outSum.get(n.id)||0, val(n));
+  const scale = Math.min(...byCol.map(c => { const tot = c.reduce((s,n) => s + nv(n), 0) || 1; return (H0 - 40 - GAP * c.length - MINH * c.length * 0) / tot; }));
+  const pos = new Map(); let maxH = 0;
+  byCol.forEach((c, ci) => { let y = 28; c.forEach(n => { const h = Math.max(MINH, nv(n) * scale); pos.set(n.id, {x:xs[ci], y, h, in:0, out:0, n}); y += h + GAP; }); maxH = Math.max(maxH, y); });
+  svg.setAttribute("viewBox", `0 0 ${W} ${maxH + 16}`); svg.setAttribute("height", maxH + 16);
+  const links = [...edges].sort((a,b) => val(b) - val(a)).map(e => {
+    const s = pos.get(e.from), t = pos.get(e.to); if (!s || !t) return "";
+    const v = val(e), w = Math.max(v > 0 ? 1.5 : 1, v * scale);
+    const sy = s.y + s.out + w/2, ty = t.y + t.in + w/2; s.out += v > 0 ? w : 0; t.in += v > 0 ? w : 0;
+    const x1 = s.x + colW, x2 = t.x, c = (x2 - x1) * .5;
+    const bad = e.requests ? e.failures / e.requests : 0, color = v === 0 ? "#64748b" : bad >= .05 ? "#dc2626" : (e.requests && e.fallbacks / e.requests >= .1) ? "#d97706" : "#475569";
+    const tip = `${s.n.label} → ${t.n.label}: ${int(e.requests)} calls, ${money(e.cost)}${e.failures ? `, ${e.failures} failed` : ""}${e.fallbacks ? `, ${e.fallbacks} via fallback` : ""}${e.p95_ms ? `, p95 ${ms(e.p95_ms)}` : ""}${e.declared && v === 0 ? " (configured, no traffic)" : ""}`;
+    return `<path class="link" data-from="${esc(e.from)}" data-to="${esc(e.to)}" d="M${x1},${sy} C${x1+c},${sy} ${x2-c},${ty} ${x2},${ty}" stroke="${color}" stroke-width="${w}" stroke-opacity="${v === 0 ? .55 : .5}" ${v === 0 ? 'stroke-dasharray="4 4"' : ""}><title>${esc(tip)}</title></path>`;
+  }).join("");
+  const nodes = [...pos.values()].map(({x,y,h,n}) => {
+    const fail = n.requests ? n.failures / n.requests : 0;
+    const fill = n.kind === "unknown" ? "#d97706" : n.kind === "synthetic" ? "#64748b" : n.kind === "caller" ? "#34d399" : n.kind === "tier" ? "#94a3b8" : n.label.endsWith(":free") ? "#34d399" : "#cbd5e1";
+    const flag = n.off_config || n.off_chain ? " ⚠" : "";
+    const sub = `${int(n.requests)} calls · ${money(n.cost)}${fail >= .05 ? " · " + Math.round(fail*100) + "% fail" : ""}`;
+    const lab = (n.kind === "model" ? short(n.label) : n.label) + flag;
+    return `<g class="node" data-id="${esc(n.id)}" opacity="${n.requests || n.kind === "tier" ? 1 : .55}"><rect x="${x}" y="${y}" width="6" height="${h}" fill="${fail >= .05 ? "#dc2626" : fill}"/>
+      <text x="${x+14}" y="${y + Math.min(h/2, 12) + (h < 30 ? 3 : 0)}">${esc(lab.length > 26 ? lab.slice(0,25) + "…" : lab)}</text>
+      ${h >= 30 ? `<text class="sub" x="${x+14}" y="${y + 27}">${esc(sub)}</text>` : ""}<title>${esc(n.label)} — ${esc(sub)}</title></g>`;
+  }).join("");
+  const heads = ["CALLERS","TIERS","SERVED BY"].map((t,i) => `<text class="colhead" x="${xs[i]}" y="14">${t}</text>`).join("");
+  svg.innerHTML = heads + links + nodes;
+  const apply = id => {
+    state.flowFocus = id; svg.classList.toggle("focus", !!id);
+    const keep = new Set(id ? [id] : []);
+    $$(".link", svg).forEach(p => { const on = id && (p.dataset.from === id || p.dataset.to === id); p.classList.toggle("on", !!on); if (on) { keep.add(p.dataset.from); keep.add(p.dataset.to); } });
+    // second hop: show the full route through the focused node
+    if (id) $$(".link", svg).forEach(p => { if (keep.has(p.dataset.from) && (p.dataset.from === id || p.dataset.to === id) === false && (keep.has(p.dataset.to))) p.classList.add("on"); });
+    $$(".node", svg).forEach(g => g.classList.toggle("on", !id || keep.has(g.dataset.id)));
+  };
+  $$(".node", svg).forEach(g => { g.onmouseenter = () => { if (!pinned) apply(g.dataset.id); }; g.onmouseleave = () => { if (!pinned) apply(null); }; g.onclick = () => { pinned = pinned === g.dataset.id ? null : g.dataset.id; apply(pinned); }; });
+  apply(pinned);
+}
+let pinned = null;
+$("#flowmetric").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; state.flowMetric = b.dataset.m; $$("#flowmetric button").forEach(x => x.setAttribute("aria-pressed", x === b)); save(); render(); });
+
+
+/* ---------- risk tab ---------- */
+state.risk = null; state.riskWin = "all"; state.editing = null;
+async function loadRisk(){
+  try {
+    const r = await fetch(`/api/control/risk?window=${state.riskWin}`, {cache:"no-store"});
+    const j = await r.json(); if (!r.ok) throw new Error(j.message || j.error || r.status);
+    state.risk = j; renderRisk();
+  } catch (e) { $("#riskkpis").innerHTML = `<div class="note">Could not load the risk view: ${esc(e.message)}</div>`; }
+}
+const classChip = b => b == null ? chip("idle","no profile") : b === "inherit" ? chip("idle","inherits") : chip(b === "restricted" ? "bad" : b === "sensitive" ? "warn" : b === "internal" ? "idle" : "ok", b);
+const mTok = v => v >= 1e6 ? (v/1e6).toFixed(1) + "M" : v >= 1e3 ? Math.round(v/1e3) + "k" : String(v);
+const PROT_LABEL = {"none":"No policy","no-collection":"No data collection","zero-retention":"Zero retention","local":"Local (this PC)"};
+const protChip = p => chip(p === "zero-retention" || p === "local" ? "ok" : p === "no-collection" ? "warn" : "bad", PROT_LABEL[p]);
+function renderRisk(){
+  const d = state.risk; if (!d) return;
+  const t = d.totals;
+  $("#riskstamp").textContent = "generated " + when(d.generated_at);
+  $("#riskkpis").innerHTML = [
+    {l:"Tokens with no policy", v:pct(t.share_unprotected,0), cls:t.share_unprotected > 50 ? "bad" : "warn", d:`${mTok(t.tokens_by_protection.none)} of ${mTok(t.tokens)} input tokens`},
+    {l:"Likely-sensitive, unprotected", v:mTok(t.likely_sensitive_unprotected_tokens), cls:"warn", d:"tokens from agents scored ≥0.6 likelihood"},
+    {l:"Zero-retention share", v:pct(t.tokens ? t.tokens_by_protection["zero-retention"]*100/t.tokens : 0, 1), cls:"good", d:`${mTok(t.tokens_by_protection["zero-retention"])} tokens`},
+    {l:"Agents without a profile", v:String(t.unprofiled_agents.length), cls:t.unprofiled_agents.length ? "warn" : "good", d:t.unprofiled_agents.length ? "scores below are rough proxies" : "all declared"},
+  ].map(k => `<div class="kpi ${k.cls||""}"><span class="accent"></span><div class="label">${k.l}</div><div class="v">${k.v}</div><div class="d">${k.d}</div></div>`).join("");
+  $("#eras").innerHTML = d.eras.map(e => `<div class="era"><div class="when">${e.since.startsWith("2000") ? "Start of data" : "from " + new Date(e.since).toLocaleString([], {month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"})}</div>
+    <div><div class="strong" style="margin-bottom:4px">${esc(e.note)}</div><div style="display:flex;gap:6px 12px;flex-wrap:wrap">${Object.entries(e.tiers).map(([tier,p]) => `<span class="mono" style="font-size:11.5px">${esc(tier)} ${protChip(p)}</span>`).join("")}</div></div></div>`).join("");
+  const draftable = d.agents.filter(a => a.profile.source === "none" && a.draft);
+  $("#applydrafts").hidden = !draftable.length; $("#draftcount").textContent = draftable.length ? `${draftable.length} agents have a draft profile from their OpenClaw config` : "";
+  const cell = (a, p) => { const c = a.cells[p]; return c.calls ? `<div class="heat h-${c.band}"><b class="mono">${mTok(c.tokens)}</b><small>${int(c.calls)} calls · ${c.score.toFixed(2)}</small></div>` : `<div class="heat h-none">—</div>`; };
+  $("#riskmatrix").innerHTML = `<thead><tr><th>Agent</th><th>Data profile</th><th class="r">Likelihood</th>${["none","no-collection","zero-retention","local"].map(p => `<th class="r">${PROT_LABEL[p]}</th>`).join("")}<th class="r">Risk index</th></tr></thead><tbody>${
+    d.agents.map(a => `<tr data-agent="${esc(a.agent)}" style="cursor:pointer"><td class="txt strong">${esc(a.agent)}</td>
+      <td class="txt">${classChip(a.profile.baseline)} <span class="muted mono" style="font-size:11px">${esc((a.profile.data||[]).join(", "))}</span>${a.profile.source === "none" && a.draft ? ` <span class="muted" style="font-size:11px">draft available</span>` : ""}</td>
+      <td class="r" title="${esc(a.likelihood_basis)}">${a.likelihood.toFixed(2)}${a.profile.source === "none" ? ' <span class="muted">~</span>' : ""}</td>
+      ${["none","no-collection","zero-retention","local"].map(p => `<td class="r">${cell(a,p)}</td>`).join("")}
+      <td class="r"><div class="pair" style="justify-content:flex-end"><div class="hbar" style="width:70px"><i style="width:${t.risk_tokens ? Math.round(a.risk_tokens*100/t.risk_tokens) : 0}%;background:var(--bad-d)"></i></div><span>${mTok(a.risk_tokens)}</span></div></td></tr>`).join("")}</tbody>`;
+  $$("#riskmatrix tbody tr").forEach(tr => tr.onclick = () => { state.editing = tr.dataset.agent; renderEditor(); $("#editor").scrollIntoView({block:"nearest"}); });
+  renderEditor();
+  $("#audit").innerHTML = d.audit.length ? `<div class="tw"><table><thead><tr><th>When</th><th>Action</th><th>Changed</th><th>Backup</th></tr></thead><tbody>${d.audit.map(a => `<tr><td>${new Date(a.at).toLocaleString()}</td><td class="txt">${esc(a.action)}</td><td class="muted">${esc((a.paths||[]).join(", "))}</td><td class="muted">${esc(a.backup)}</td></tr>`).join("")}</tbody></table></div>` : `<div class="empty">no changes made from the Control Center yet</div>`;
+}
+function renderEditor(){
+  const d = state.risk, name = state.editing, el = $("#editor");
+  if (!d || !name) { el.innerHTML = ""; return; }
+  const a = d.agents.find(x => x.agent === name); if (!a) { el.innerHTML = ""; return; }
+  const cur = d.profiles[name] || null, draft = a.draft;
+  const val = cur || {baseline: "internal", data: [], note: ""};
+  el.innerHTML = `<div class="editor"><div class="strong">Data profile — ${esc(name)}</div>
+    <div class="sub" style="margin:2px 0 0">What kind of data does this agent handle? It sets the starting likelihood for the matrix and, later, routing hints.</div>
+    <label>Baseline class</label><select id="ed-base">${d.baselines.map(b => `<option value="${b}" ${val.baseline === b ? "selected" : ""}>${b}${b === "inherit" ? " (takes the class of what it summarizes)" : ""}</option>`).join("")}</select>
+    <label>Data types (comma separated)</label><input type="text" id="ed-data" value="${esc((val.data||[]).join(", "))}" placeholder="financial, client-records, files">
+    <label>Note</label><input type="text" id="ed-note" value="${esc(val.note||"")}" maxlength="200" placeholder="what this agent does with data">
+    <div class="row"><button class="btn primary" id="ed-save">Save profile</button>
+      ${draft ? `<button class="btn" id="ed-draft">Use draft (${esc(draft.baseline)})</button>` : ""}
+      ${cur ? `<button class="btn" id="ed-clear" style="color:var(--bad)">Remove profile</button>` : ""}
+      <button class="btn" id="ed-cancel">Close</button></div><div class="msg" id="ed-msg"></div></div>`;
+  $("#ed-cancel").onclick = () => { state.editing = null; renderEditor(); };
+  if (draft) $("#ed-draft").onclick = () => { $("#ed-base").value = draft.baseline; $("#ed-data").value = draft.data.join(", "); $("#ed-note").value = draft.note || ""; };
+  const send = async (body, msg) => {
+    const m = $("#ed-msg") || {}; m.className = "msg"; m.textContent = "saving…";
+    const ok = await putProfiles({base_hash: d.config_hash, ...body});
+    if (ok.good) { state.editing = null; await loadRisk(); } else { m.className = "msg err"; m.textContent = ok.text; }
+  };
+  $("#ed-save").onclick = () => send({profiles: {[name]: {baseline: $("#ed-base").value, data: $("#ed-data").value.split(",").map(s => s.trim()).filter(Boolean), note: $("#ed-note").value.trim()}}});
+  if (cur) $("#ed-clear").onclick = () => send({remove: [name]});
+}
+async function putProfiles(body){
+  try {
+    const r = await fetch("/api/control/profiles", {method:"PUT", headers:{"Content-Type":"application/json","X-Control-Action":"1"}, body: JSON.stringify(body)});
+    const j = await r.json();
+    return r.ok ? {good:true} : {good:false, text: j.message || j.error || ("HTTP " + r.status)};
+  } catch (e) { return {good:false, text: e.message}; }
+}
+$("#applydrafts").addEventListener("click", async () => {
+  const d = state.risk, list = d.agents.filter(a => a.profile.source === "none" && a.draft);
+  if (!list.length || !confirm(`Save draft profiles for ${list.length} agents (${list.map(a => a.agent).join(", ")})? You can edit or remove each one afterwards; a backup of the config is made first.`)) return;
+  const profiles = Object.fromEntries(list.map(a => [a.agent, {baseline: a.draft.baseline, data: a.draft.data, note: a.draft.note || ""}]));
+  const res = await putProfiles({base_hash: d.config_hash, profiles});
+  if (res.good) await loadRisk(); else alert(res.text);
+});
+$("#riskwin").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; state.riskWin = b.dataset.w; $$("#riskwin button").forEach(x => x.setAttribute("aria-pressed", x === b)); loadRisk(); });
+$("#riskrefresh").addEventListener("click", loadRisk);
+
+/* ---------- controls tab ---------- */
+state.ctl = {data: null, drafts: {}, picker: null, results: [], status: null, msg: {}, newTier: null};
+const POLICY_LABEL = {keep: "keep current", zdr: "zero retention", "no-collection": "no data collection", none: "no policy (⚠ weaker)", local: "local — stays on this PC"};
+async function api(method, url, body){
+  try {
+    const r = await fetch(url, {method, headers: {"Content-Type":"application/json","X-Control-Action":"1"}, body: body ? JSON.stringify(body) : undefined});
+    const j = await r.json().catch(() => ({}));
+    return {ok: r.ok, status: r.status, json: j, text: j.message || j.error || ("HTTP " + r.status)};
+  } catch (e) { return {ok: false, status: 0, json: {}, text: e.message}; }
+}
+async function loadCtl(){
+  try {
+    const r = await fetch("/api/control/tiers", {cache:"no-store"}); const j = await r.json();
+    if (!r.ok) throw new Error(j.message || j.error || r.status);
+    state.ctl.data = j; renderCtl();
+  } catch (e) { $("#ctl-tiers").innerHTML = `<div class="note">Could not load tiers: ${esc(e.message)}</div>`; }
+}
+const orig = (name) => { const t = state.ctl.data.tiers[name]; return {primary: t.primary, fallbacks: [...t.fallbacks], policy: "keep"}; };
+const draftOf = name => name === "__new" ? state.ctl.newTier : (state.ctl.drafts[name] || orig(name));
+const isDirty = name => name === "__new" || JSON.stringify(draftOf(name)) !== JSON.stringify(orig(name));
+function priceOf(id){ const c = state.ctl.prices?.[id]; return c || null; }
+function pxHtml(id){
+  const p = priceOf(id);
+  if (p && p.local) return p.known ? `<div class="px">${chip("ok","local")} free · ${p.size_gb ?? "?"} GB${p.params ? " · " + esc(p.params) : ""}${p.embedding ? " · " + chip("bad","embedding only") : ""}</div>` : `<div class="px">${chip("warn","not installed","not found in Ollama, or Ollama is not reachable")}</div>`;
+  if (!p || !p.known) return `<span class="px">${chip("warn","unverified","not found in the OpenRouter catalog (or catalog unreachable)")}</span>`;
+  const cost = p.free ? chip("ok","free") : `$${p.in ?? "?"} in / $${p.out ?? "?"} out per M · <b>blended ${p.blended == null ? "?" : "$" + p.blended}/M</b>`;
+  return `<div class="px">${cost}${p.context ? " · " + mTok(p.context) + " ctx" : ""}${p.tools ? " · tools" : ""}</div>`;
+}
+function renderCtl(){
+  const d = state.ctl.data; if (!d) return;
+  state.ctl.prices = state.ctl.prices || {};
+  Object.values(d.tiers).forEach(t => t.chain.forEach(m => { state.ctl.prices[m.id] = m; }));
+  const c = d.catalog;
+  $("#ctl-status").textContent = c.ok ? `catalog: ${c.count} models${c.stale ? " (stale — OpenRouter unreachable)" : ""} · mix ${d.ratio}:1 input:output` : "catalog unavailable — changes are unverified";
+  const names = Object.keys(d.tiers); if (state.ctl.newTier) names.push("__new");
+  $("#ctl-tiers").innerHTML = names.map(n => tierCard(n)).join("");
+  renderPicker();
+  $("#ctl-audit").innerHTML = d.audit.length ? `<div class="tw"><table><thead><tr><th>When</th><th>Action</th><th>Changed</th><th></th></tr></thead><tbody>${d.audit.map((a,i) => `<tr><td>${new Date(a.at).toLocaleString()}</td><td class="txt">${esc(a.action)}</td><td class="muted">${esc((a.paths||[]).join(", "))}</td><td class="r">${a.backup ? `<button class="btn sm" data-undo="${i}">${String(a.action).startsWith("restore:") ? "Redo" : "Undo"}</button>` : ""}</td></tr>`).join("")}</tbody></table></div>` : `<div class="empty">no changes made from the Control Center yet</div>`;
+}
+function tierCard(name){
+  const d = state.ctl.data, isNew = name === "__new", dr = draftOf(name), dirty = isDirty(name);
+  const cur = isNew ? null : d.tiers[name], chain = [dr.primary, ...dr.fallbacks].filter(Boolean);
+  const isLocal = isNew ? dr.provider === "ollama" : cur.provider === "ollama";
+  const rows = chain.map((id, i) => `<div class="mrow"><span class="role">${i === 0 ? "primary" : "fallback " + i}</span>
+      <div><div class="mid">${esc(id)}</div>${pxHtml(id)}</div>
+      <div class="acts"><button class="btn sm" data-act="up" data-t="${esc(name)}" data-i="${i}" ${i === 0 ? "disabled" : ""} title="Move up">▲</button>
+        <button class="btn sm" data-act="down" data-t="${esc(name)}" data-i="${i}" ${i === chain.length - 1 ? "disabled" : ""} title="Move down">▼</button>
+        <button class="btn sm" data-act="rm" data-t="${esc(name)}" data-i="${i}" ${chain.length === 1 ? "disabled" : ""} title="Remove" style="color:var(--bad)">✕</button></div></div>`).join("") || `<div class="empty">no models yet — add one</div>`;
+  const first = priceOf(dr.primary), was = cur ? priceOf(cur.primary) : null;
+  const delta = first?.blended != null && was?.blended != null && dr.primary !== cur.primary
+    ? ` <span class="mono" style="color:${first.blended <= was.blended ? "var(--ok)" : "var(--warn)"}">primary ${first.blended <= was.blended ? "↓" : "↑"} ${was.blended ? Math.abs(Math.round((first.blended - was.blended) * 100 / was.blended)) : 0}% vs saved</span>` : "";
+  const pol = isLocal ? ["local"] : isNew ? ["zdr","no-collection","none"] : d.policies.filter(p => p !== "local");
+  const msg = state.ctl.msg[name];
+  return `<div class="cc ${dirty ? "dirty" : ""}" data-card="${esc(name)}">
+    <div class="head">${isNew ? `<span><input type="text" id="nt-name" placeholder="new-tier-name" value="${esc(state.ctl.newTier.name || "")}" maxlength="31" style="width:160px"> <select data-act="provider"><option value="openrouter" ${isLocal ? "" : "selected"}>cloud (OpenRouter)</option><option value="ollama" ${isLocal ? "selected" : ""}>local (Ollama)</option></select></span>` : `<span class="name">${esc(name)}</span>`}
+      <span>${cur ? (isLocal ? chip("ok","local") + " " : "") + protChip(cur.protection) : (isLocal ? chip("ok","local") : "")} ${dirty && !isNew ? chip("warn","unsaved") : ""}</span></div>
+    ${rows}
+    <div class="foot"><button class="btn sm" data-act="add" data-t="${esc(name)}">+ Add model</button>
+      <label class="muted mono" style="font-size:11px">privacy <select data-act="policy" data-t="${esc(name)}" ${isLocal ? "disabled" : ""}>${pol.map(p => `<option value="${p}" ${dr.policy === p || isLocal ? "selected" : ""}>${POLICY_LABEL[p]}${p === "keep" ? " (" + PROT_LABEL[cur.protection].toLowerCase() + ")" : ""}</option>`).join("")}</select></label>${delta}</div>
+    <div class="foot">${dirty ? `<button class="btn primary sm" data-act="save" data-t="${esc(name)}">${isNew ? "Create tier" : "Save changes"}</button><button class="btn sm" data-act="revert" data-t="${esc(name)}">${isNew ? "Cancel" : "Revert"}</button>` : ""}
+      ${!isNew ? `<button class="btn sm" data-act="delete" data-t="${esc(name)}" style="margin-left:auto;color:var(--bad)">Delete tier</button>` : ""}</div>
+    <div class="msg ${msg?.cls || ""}">${esc(msg?.text || "")}</div></div>`;
+}
+function setDraft(name, fn){
+  const dr = JSON.parse(JSON.stringify(draftOf(name))); fn(dr);
+  if (name === "__new") state.ctl.newTier = Object.assign(state.ctl.newTier, dr); else state.ctl.drafts[name] = dr;
+  state.ctl.msg[name] = null; renderCtl();
+}
+$("#ctl-tiers").addEventListener("input", e => { if (e.target.id === "nt-name") state.ctl.newTier.name = e.target.value.trim().toLowerCase(); });
+$("#ctl-tiers").addEventListener("change", e => {
+  const pv = e.target.closest("select[data-act=provider]");
+  if (pv) { Object.assign(state.ctl.newTier, {provider: pv.value, primary: null, fallbacks: [], policy: pv.value === "ollama" ? "local" : "zdr"}); state.ctl.picker = null; renderCtl(); return; }
+  const s = e.target.closest("select[data-act=policy]"); if (s) setDraft(s.dataset.t, dr => { dr.policy = s.value; });
+});
+$("#ctl-tiers").addEventListener("click", async e => {
+  const b = e.target.closest("button[data-act]"); if (!b) return; const t = b.dataset.t, i = +b.dataset.i, a = b.dataset.act;
+  if (a === "up" || a === "down") setDraft(t, dr => { const c = [dr.primary, ...dr.fallbacks], j = a === "up" ? i - 1 : i + 1; [c[i], c[j]] = [c[j], c[i]]; dr.primary = c[0]; dr.fallbacks = c.slice(1); });
+  else if (a === "rm") setDraft(t, dr => { const c = [dr.primary, ...dr.fallbacks]; c.splice(i, 1); dr.primary = c[0]; dr.fallbacks = c.slice(1); });
+  else if (a === "add") { state.ctl.picker = {tier: t, q: "", free: t === "free", tools: false}; renderPicker(); searchCatalog(); $("#ctl-picker").scrollIntoView({block:"nearest"}); }
+  else if (a === "revert") { if (t === "__new") state.ctl.newTier = null; else delete state.ctl.drafts[t]; state.ctl.msg[t] = null; renderCtl(); }
+  else if (a === "save") await saveTier(t, false);
+  else if (a === "delete") await deleteTier(t);
+});
+async function saveTier(t, confirm){
+  const dr = draftOf(t), isNew = t === "__new", name = isNew ? dr.name : t;
+  if (isNew && !name) { state.ctl.msg[t] = {cls:"err", text:"Give the new tier a name first."}; return renderCtl(); }
+  if (!dr.primary) { state.ctl.msg[t] = {cls:"err", text:"A tier needs at least one model."}; return renderCtl(); }
+  state.ctl.msg[t] = {cls:"", text:"saving…"}; renderCtl();
+  const res = await api("PUT", "/api/control/tiers", {base_hash: state.ctl.data.config_hash, action: isNew ? "create" : "set", tier: name, primary: dr.primary, fallbacks: dr.fallbacks, policy: dr.policy, confirm, ...(isNew ? {provider: dr.provider} : {})});
+  if (res.status === 409 && res.json.error === "needs_confirmation") {
+    if (window.confirm(res.json.message + "\n\nApply anyway?")) return saveTier(t, true);
+    state.ctl.msg[t] = {cls:"", text:"not saved"}; return renderCtl();
+  }
+  if (!res.ok) { state.ctl.msg[t] = {cls:"err", text:res.text}; return renderCtl(); }
+  if (isNew) state.ctl.newTier = null; else delete state.ctl.drafts[t];
+  state.ctl.picker = null; await loadCtl();
+  state.ctl.msg[name] = {cls:"ok", text: res.json.changed ? "saved — live on the next request" : "no change"}; renderCtl();
+}
+async function deleteTier(t){
+  if (!window.confirm(`Delete tier "${t}"? Clients that still request it will get an error. A backup is made first.`)) return;
+  const res = await api("PUT", "/api/control/tiers", {base_hash: state.ctl.data.config_hash, action: "delete", tier: t, confirm: true});
+  if (!res.ok) { state.ctl.msg[t] = {cls:"err", text:res.text}; return renderCtl(); }
+  delete state.ctl.drafts[t]; await loadCtl();
+}
+$("#ctl-new").addEventListener("click", () => { state.ctl.newTier = {name: "", primary: null, fallbacks: [], policy: "zdr", provider: "openrouter"}; renderCtl(); });
+$("#ctl-refresh").addEventListener("click", loadCtl);
+$("#ctl-audit").addEventListener("click", async e => {
+  const b = e.target.closest("button[data-undo]"); if (!b) return; const a = state.ctl.data.audit[+b.dataset.undo];
+  if (!window.confirm(`Undo "${a.action}"? The config returns to how it was before that change; later changes are lost. The current file is backed up first.`)) return;
+  const res = await api("POST", "/api/control/restore", {name: a.backup, base_hash: state.ctl.data.config_hash});
+  if (!res.ok) { alert(res.text); return; } state.ctl.drafts = {}; await loadCtl();
+});
+/* model picker */
+let pickTimer = null;
+function renderPicker(){
+  const p = state.ctl.picker, el = $("#ctl-picker"); if (!p) { el.innerHTML = ""; return; }
+  p.local = p.tier === "__new" ? state.ctl.newTier?.provider === "ollama" : state.ctl.data.tiers[p.tier]?.provider === "ollama";
+  if (el.dataset.tier !== p.tier || !el.firstElementChild) {
+    el.dataset.tier = p.tier;
+    el.innerHTML = `<div class="picker"><div class="strong">Add a model to ${p.tier === "__new" ? "the new tier" : esc(p.tier)}</div>
+      <div class="sub" style="margin:2px 0 8px">${p.local ? "Models installed in your local Ollama (they run on this PC; nothing is sent out). Add more with <span class=\"mono\">ollama pull &lt;name&gt;</span>." : "Cheapest first. Searching the live OpenRouter catalog."}</div>
+      ${p.local ? `<details class="sub" style="margin-bottom:8px"><summary style="cursor:pointer">Long prompts: Ollama's default context is small</summary><div style="margin-top:6px">Agent prompts here are often 50k+ tokens, and Ollama silently drops whatever exceeds its context window. Make a bigger-context copy of a model (a 12 GB GPU handles roughly 8k–32k for a 9–12B model; test it):<pre class="mono" style="font-size:11.5px;background:var(--s1);padding:8px;border-radius:4px;overflow:auto">echo FROM qwen3.5:9b> Modelfile\necho PARAMETER num_ctx 16384>> Modelfile\nollama create qwen3.5-9b-16k -f Modelfile</pre></div></details>` : ""}
+      <div class="tools"><input type="text" id="pk-q" placeholder="search: qwen, deepseek, claude, gemini…" value="${esc(p.q)}" autocomplete="off">
+        ${p.local ? "" : `<label class="chk"><input type="checkbox" id="pk-free" ${p.free ? "checked" : ""} ${p.tier === "free" ? "disabled" : ""}> free only</label>
+        <label class="chk"><input type="checkbox" id="pk-tools" ${p.tools ? "checked" : ""}> supports tools</label>`}
+        <button class="btn sm" id="pk-close">Close</button></div><div id="pk-results"></div></div>`;
+    $("#pk-q").addEventListener("input", e => { p.q = e.target.value; clearTimeout(pickTimer); pickTimer = setTimeout(searchCatalog, 250); });
+    if (!p.local) { $("#pk-free").addEventListener("change", e => { p.free = e.target.checked; searchCatalog(); });
+    $("#pk-tools").addEventListener("change", e => { p.tools = e.target.checked; searchCatalog(); }); }
+    $("#pk-close").addEventListener("click", () => { state.ctl.picker = null; renderPicker(); });
+    $("#pk-results").addEventListener("click", e => {
+      const b = e.target.closest("button[data-pick]"); if (!b) return; const id = b.dataset.pick, role = b.dataset.role, tier = state.ctl.picker.tier;
+      setDraft(tier, dr => { if (role === "primary") { if (dr.primary) dr.fallbacks = [dr.primary, ...dr.fallbacks].filter(x => x !== id); dr.primary = id; } else dr.fallbacks.push(id); dr.fallbacks = dr.fallbacks.filter((x, i, a) => a.indexOf(x) === i && x !== dr.primary); });
+    });
+  }
+  renderResults();
+}
+async function searchCatalog(){
+  const p = state.ctl.picker; if (!p) return;
+  if (p.local) {
+    try {
+      const r = await fetch("/api/control/local-models?refresh=true", {cache:"no-store"}); const j = await r.json();
+      if (!r.ok) throw new Error(j.status?.error || "Ollama is not reachable (is it running?)");
+      const q = (p.q || "").toLowerCase();
+      state.ctl.results = j.models.filter(m => m.id.toLowerCase().includes(q)).map(m => ({...m, local: true}));
+      state.ctl.pickErr = null; state.ctl.prices = state.ctl.prices || {};
+      j.models.forEach(m => { state.ctl.prices[m.id] = {...m, known: true, local: true, blended: 0}; });
+    } catch (e) { state.ctl.results = []; state.ctl.pickErr = e.message; }
+    if (state.ctl.picker === p) renderResults(); return;
+  }
+  const qs = new URLSearchParams({q: p.q || "", free: p.free || p.tier === "free", tools: p.tools, limit: 40});
+  try {
+    const r = await fetch("/api/control/catalog?" + qs, {cache:"no-store"}); const j = await r.json();
+    if (!r.ok) throw new Error("catalog unavailable — type a model id by hand is not supported yet");
+    state.ctl.results = j.models; state.ctl.pickErr = null; state.ctl.prices = state.ctl.prices || {};
+    j.models.forEach(m => { state.ctl.prices[m.id] = {...m, known: true, blended: m.in == null || m.out == null ? null : Math.round((j.ratio * m.in + m.out) / (j.ratio + 1) * 10000) / 10000}; });
+  } catch (e) { state.ctl.results = []; state.ctl.pickErr = e.message; }
+  if (state.ctl.picker === p) renderResults();
+}
+function renderResults(){
+  const p = state.ctl.picker, el = $("#pk-results"); if (!p || !el) return;
+  if (state.ctl.pickErr) { el.innerHTML = `<div class="note">${esc(state.ctl.pickErr)}</div>`; return; }
+  const dr = draftOf(p.tier), have = new Set([dr.primary, ...dr.fallbacks]);
+  if (p.local) {
+    el.innerHTML = state.ctl.results.length ? `<div class="tw" style="max-height:360px"><table><thead><tr><th>Model</th><th class="r">Size</th><th>Params</th><th>Quant</th><th></th></tr></thead><tbody>${state.ctl.results.map(m => `<tr><td class="txt"><span class="strong mono" style="font-size:12px">${esc(m.id)}</span> ${m.embedding ? chip("bad","embedding only","cannot be used for chat") : ""}</td><td class="r">${m.size_gb ?? "—"} GB</td><td class="muted">${esc(m.params)}</td><td class="muted">${esc(m.quant)}</td><td class="r">${m.embedding ? "" : have.has(m.id) ? '<span class="muted">in tier</span>' : `<button class="btn sm" data-pick="${esc(m.id)}" data-role="primary">Primary</button> <button class="btn sm" data-pick="${esc(m.id)}" data-role="fallback">Fallback</button>`}</td></tr>`).join("")}</tbody></table></div>` : `<div class="empty">no installed models match</div>`;
+    return;
+  }
+  el.innerHTML = state.ctl.results.length ? `<div class="tw" style="max-height:360px"><table><thead><tr><th>Model</th><th class="r">In $/M</th><th class="r">Out $/M</th><th class="r">Blended $/M</th><th class="r">Context</th><th></th></tr></thead><tbody>${state.ctl.results.map(m => {
+    const pr = state.ctl.prices[m.id]; return `<tr><td class="txt"><span class="strong mono" style="font-size:12px">${esc(m.id)}</span> ${m.free ? chip("ok","free") : ""} ${m.tools ? chip("idle","tools") : ""}<div class="muted" style="font-size:11px">${esc(m.name)}</div></td>
+    <td class="r">${m.in ?? "—"}</td><td class="r">${m.out ?? "—"}</td><td class="r">${pr.blended ?? "—"}</td><td class="r">${m.context ? mTok(m.context) : "—"}</td>
+    <td class="r">${have.has(m.id) ? '<span class="muted">in tier</span>' : `<button class="btn sm" data-pick="${esc(m.id)}" data-role="primary">Primary</button> <button class="btn sm" data-pick="${esc(m.id)}" data-role="fallback">Fallback</button>`}</td></tr>`; }).join("")}</tbody></table></div>` : `<div class="empty">no matches</div>`;
+}
+
+/* ---------- egress tab ---------- */
+state.sort.eprov = ["connections", -1]; state.sort.eproc = ["connections", -1]; state.egress = null;
+let egBusy = false;
+async function loadEgress(){
+  if (egBusy) return; egBusy = true;
+  try {
+    const r = await fetch(`/api/control/egress?window=${state.window}`, {cache:"no-store"}); const j = await r.json();
+    if (!r.ok) throw new Error(j.error || r.status);
+    state.egress = j; renderEgress();
+  } catch (e) { $("#eg-status").innerHTML = `<div class="note">Could not load egress data: ${esc(e.message)}</div>`; }
+  finally { egBusy = false; }
+}
+const dur = s => s == null ? "—" : s < 90 ? Math.round(s) + "s" : s < 5400 ? Math.round(s/60) + "m" : s < 172800 ? (s/3600).toFixed(1) + "h" : Math.round(s/86400) + "d";
+const sharedTag = r => r.shared ? ` <span class="muted" style="font-size:11px" title="Address shared with other websites (e.g. Cloudflare): the provider label may be wrong for these">(${r.shared} shared IP)</span>` : "";
+const linkMix = (links, n=4) => links.slice(0, n).map(l => `<span class="mono muted" style="font-size:11px">${esc(l.name)}×${int(l.connections)}</span>`).join(" · ") + (links.length > n ? ` <span class="muted">+${links.length - n}</span>` : "");
+function renderEgress(){
+  const d = state.egress; if (!d) return; const c = d.collector, t = d.totals;
+  $("#eg-status").innerHTML = c.state === "running"
+    ? `<div class="sub" style="margin-bottom:12px">${chip("ok","collector running")} heartbeat ${c.age_seconds}s ago · ${c.domains ?? "?"} domain rules · ${c.ip_map ?? "?"} addresses known</div>`
+    : `<div class="note"><b>${c.state === "stopped" ? "The egress collector stopped" + (c.last_heartbeat ? " (last heartbeat " + ago(c.last_heartbeat) + ")" : "") : "The egress collector is not running yet"}.</b> To start watching, double-click <span class="mono">Setup Egress Monitor.cmd</span> in your router folder (one time; it runs hidden at every logon). Numbers below only cover the time it was running.</div>`;
+  $("#eg-kpis").innerHTML = [
+    {l:"AI providers reached", v:int(t.providers), cls:"", d:"distinct providers"},
+    {l:"AI connections", v:int(t.connections), cls:"", d:`${dur(t.connected_seconds)} connected in total`},
+    {l:"Via your router", v:int(t.via_router), cls:t.via_router ? "good" : "", d:"tracked in the other tabs"},
+    {l:"Direct (not via router)", v:int(t.direct), cls:t.direct ? "warn" : "good", d:"no telemetry, policy or cost tracking"},
+    {l:"Programs", v:int(t.programs), cls:"", d:"talking to AI providers"},
+  ].map(k => `<div class="kpi ${k.cls}"><span class="accent"></span><div class="label">${k.l}</div><div class="v">${k.v}</div><div class="d">${k.d}</div></div>`).join("");
+  $("#eg-gap").innerHTML = d.could_route.length
+    ? `<div class="note"><b>These calls skip your router even though it could carry them:</b> ${d.could_route.map(g => `<span class="mono">${esc(g.proc)}</span> → ${esc(g.provider)} (${int(g.connections)} connections${g.shared ? `, ${g.shared} on shared IPs` : ""})`).join(" · ")}. Those requests have no telemetry, no privacy policy and no cost tracking. Point the program at the router, or remove its direct fallback.</div>` : "";
+  table($("#eg-prov"), "eprov", [
+    {k:"provider", h:"Provider", txt:1, v:r=>r.provider, f:r => `<span class="strong">${esc(r.provider)}</span>`},
+    {k:"connections", h:"Connections", r:1, v:r=>r.connections, f:r => int(r.connections) + sharedTag(r)},
+    {k:"seconds", h:"Connected", r:1, v:r=>r.seconds, f:r => dur(r.seconds)},
+    {k:"programs", h:"Programs", txt:1, v:r=>r.links.length, f:r => linkMix(r.links)},
+    {k:"via", h:"Via router", r:1, v:r=>r.via_router, f:r => int(r.via_router)},
+    {k:"direct", h:"Direct", r:1, v:r=>r.direct, f:r => r.direct ? `<span style="color:var(--warn)">${int(r.direct)}</span>` : "0"},
+    {k:"last", h:"Last seen", v:r=>r.last, f:r => `<span class="muted">${ago(r.last)}</span>`},
+  ], d.providers);
+  table($("#eg-proc"), "eproc", [
+    {k:"proc", h:"Program", txt:1, v:r=>r.proc, f:r => `<span class="strong mono">${esc(r.proc)}</span> ${r.via_router && !r.direct ? chip("ok","router") : ""}`},
+    {k:"providers", h:"Providers", txt:1, v:r=>r.links.length, f:r => linkMix(r.links)},
+    {k:"connections", h:"Connections", r:1, v:r=>r.connections, f:r => int(r.connections) + sharedTag(r)},
+    {k:"seconds", h:"Connected", r:1, v:r=>r.seconds, f:r => dur(r.seconds)},
+    {k:"direct", h:"Direct", r:1, v:r=>r.direct, f:r => r.direct ? `<span style="color:var(--warn)">${int(r.direct)}</span>` : "0"},
+    {k:"last", h:"Last seen", v:r=>r.last, f:r => `<span class="muted">${ago(r.last)}</span>`},
+    {k:"act", h:"", v:r=>0, f:r => r.via_router && !r.direct ? "" : `<button class="btn sm" data-bp="${esc(r.proc)}">Block…</button>`},
+  ], d.programs);
+  $("#eg-active").innerHTML = d.active.length ? `<thead><tr><th>Program</th><th>Provider</th><th>Host</th><th>Route</th><th>Connected since</th><th></th></tr></thead><tbody>${d.active.map(a => `<tr><td class="txt strong mono">${esc(a.proc)}${a.pid ? ` <span class="muted">#${a.pid}</span>` : ""}</td><td class="txt">${esc(a.provider)}</td><td class="txt muted mono">${esc(a.domain)}</td><td>${a.router ? chip("ok","via router") : chip("warn","direct")}</td><td class="muted">${ago(a.since)}</td>
+    <td class="r">${a.router ? "" : `<button class="btn sm" data-bp="${esc(a.proc)}" data-bprov="${esc(a.provider)}">Block…</button> <button class="btn sm" data-kill="${a.pid || ""}" data-kproc="${esc(a.proc)}" style="color:var(--bad)" ${a.pid ? "" : "disabled"}>End process</button>`}</td></tr>`).join("")}</tbody>` : `<tbody><tr><td class="empty">no AI connections open at the moment</td></tr></tbody>`;
+  $("#eg-blocks").innerHTML = d.blocks.length ? `<div class="tw"><table><thead><tr><th>Rule</th><th>Program</th><th>Blocks</th><th></th></tr></thead><tbody>${d.blocks.map(b => `<tr><td class="txt strong mono" style="font-size:11.5px">${esc(b.name.replace("ModelRouter-Block-", ""))} ${b.enabled ? "" : chip("idle","disabled")}</td><td class="txt muted mono" style="font-size:11px">${esc(b.program)}</td><td class="muted mono" style="font-size:11px">${esc(b.remote.length && b.remote[0] !== "Any" ? b.remote.join(", ") : "all addresses")}</td><td class="r"><button class="btn sm" data-unblock="${esc(b.name)}">Unblock…</button></td></tr>`).join("")}</tbody></table></div><div class="tools" style="margin-top:8px"><button class="btn sm" id="eg-unblock-all">Remove all blocks…</button></div>` : `<div class="empty">no blocks — nothing is being stopped by this tool</div>`;
+  $("#eg-unres").innerHTML = d.unresolved.length ? `<div class="tw"><table><thead><tr><th>Program</th><th class="r">Connections</th><th>Example addresses</th></tr></thead><tbody>${d.unresolved.map(u => `<tr><td class="txt strong mono">${esc(u.proc)}</td><td class="r">${int(u.connections)}</td><td class="muted mono">${esc(u.sample_ips.join(", "))}</td></tr>`).join("")}</tbody></table></div>` : `<div class="empty">none right now</div>`;
+  $("#eg-caveat").textContent = d.caveat;
+}
+
+
+/* egress actions: end a process, or download a firewall script (nothing runs from the page) */
+state.egBlock = null;
+const egMsg = (cls, html) => { $("#eg-msg").innerHTML = html ? `<div class="note" style="${cls === "ok" ? "border-color:rgba(5,150,105,.35);background:rgba(5,150,105,.08);color:var(--ok)" : ""}">${html}</div>` : ""; };
+function downloadText(name, text){
+  const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([text], {type: "text/plain"})); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+async function egScript(body, what){
+  const res = await api("POST", "/api/control/egress/script", body);
+  if (!res.ok) { egMsg("err", `<b>Not created:</b> ${esc(res.text)}`); return; }
+  downloadText(res.json.filename, res.json.script);
+  egMsg("ok", `<b>Downloaded ${esc(res.json.filename)}.</b> ${esc(what)} Double-click it and approve the Windows administrator prompt. It changes only the firewall rule <span class="mono">${esc(res.json.summary.rule)}</span>; open it in Notepad first if you want to read it. The Egress tab shows the rule within about 30 seconds.`);
+  state.egBlock = null; renderBlockPanel();
+}
+function renderBlockPanel(){
+  const b = state.egBlock, el = $("#eg-block"); if (!b) { el.innerHTML = ""; return; }
+  el.innerHTML = `<div class="editor"><div class="strong">Block <span class="mono">${esc(b.proc)}</span></div>
+    <div class="sub" style="margin:2px 0 0">Creates a Windows Firewall rule that stops this program making new outbound connections. Connections already open can stay up until they close; use <b>End process</b> to cut them now.</div>
+    <label>Provider</label><select id="bk-prov">${b.providers.map(p => `<option ${p === b.provider ? "selected" : ""}>${esc(p)}</option>`).join("")}</select>
+    <label>What to block</label><select id="bk-scope"><option value="provider">Only the addresses this program used for that provider</option><option value="program">Everything this program does on the network (it will be offline)</option></select>
+    <div class="row"><button class="btn primary" id="bk-go">Download block script</button><button class="btn" id="bk-cancel">Cancel</button></div></div>`;
+  $("#bk-cancel").onclick = () => { state.egBlock = null; renderBlockPanel(); };
+  $("#bk-go").onclick = () => egScript({kind: "block", proc: b.proc, provider: $("#bk-prov").value, scope: $("#bk-scope").value}, `Blocks ${b.proc} (${$("#bk-scope").value === "program" ? "all network" : "this provider's addresses"}).`);
+}
+document.addEventListener("click", async e => {
+  if (state.tab !== "egress") return;
+  const bp = e.target.closest("button[data-bp]");
+  if (bp) {
+    const proc = bp.dataset.bp, row = state.egress.programs.find(p => p.proc === proc);
+    const providers = row ? row.links.map(l => l.name) : [bp.dataset.bprov].filter(Boolean);
+    if (!providers.length) return;
+    state.egBlock = {proc, providers, provider: bp.dataset.bprov || providers[0]}; egMsg("", ""); renderBlockPanel(); $("#eg-block").scrollIntoView({block: "nearest"}); return;
+  }
+  const k = e.target.closest("button[data-kill]");
+  if (k && k.dataset.kill) {
+    const pid = +k.dataset.kill, proc = k.dataset.kproc;
+    if (!window.confirm(`End ${proc} (process ${pid})?\n\nThis closes the whole program, not just its AI connection. Unsaved work in it is lost. The router and system processes are refused.`)) return;
+    const res = await api("POST", "/api/control/egress/kill", {pid, proc});
+    egMsg(res.ok ? "ok" : "err", res.ok ? `Ended <span class="mono">${esc(proc)}</span> (process ${pid}).` : `<b>Not ended:</b> ${esc(res.text)}`);
+    loadEgress(); return;
+  }
+  const u = e.target.closest("button[data-unblock]");
+  if (u) { if (window.confirm(`Download a script that removes the block "${u.dataset.unblock}"?`)) await egScript({kind: "unblock", rule: u.dataset.unblock}, "Removes that block."); return; }
+  if (e.target.closest("#eg-unblock-all") && window.confirm("Download a script that removes every block this tool created?")) await egScript({kind: "unblock_all"}, "Removes every block this tool created.");
+});
+
+/* ---------- inbound tab ---------- */
+state.sort.iclient = ["connections", -1]; state.sort.ipeer = ["last", -1]; state.sort.ilisten = ["exposed", -1]; state.inbound = null;
+let inBusy = false;
+async function loadInbound(){
+  if (inBusy) return; inBusy = true;
+  try {
+    const r = await fetch(`/api/control/inbound?window=${state.window}`, {cache:"no-store"}); const j = await r.json();
+    if (!r.ok) throw new Error(j.error || r.status);
+    state.inbound = j; renderInbound();
+  } catch (e) { $("#in-status").innerHTML = `<div class="note">Could not load inbound data: ${esc(e.message)}</div>`; }
+  finally { inBusy = false; }
+}
+const kindChip2 = k => k === "public" ? chip("bad","internet") : k === "lan" ? chip("warn","local network") : k === "tailscale" ? chip("idle","tailscale") : chip("idle", k);
+function renderInbound(){
+  const d = state.inbound; if (!d) return; const c = d.collector, t = d.totals;
+  $("#in-status").innerHTML = c.state === "running" ? "" : `<div class="note"><b>The collector is ${c.state === "stopped" ? "stopped" : "not running yet"}.</b> Double-click <span class="mono">Setup Egress Monitor.cmd</span> in your router folder (it also records inbound connections).</div>`;
+  $("#in-kpis").innerHTML = [
+    {l:"Listening ports", v:int(t.listeners), cls:"", d:"programs waiting for connections"},
+    {l:"Reachable beyond this PC", v:int(t.exposed), cls:t.exposed ? "warn" : "good", d:"bound to the network, not just localhost"},
+    {l:"Remote machines connected", v:int(t.remote_peers), cls:t.remote_peers ? "warn" : "good", d:`${int(t.public_peers)} from the internet`},
+    {l:"Programs calling the router", v:int(t.router_clients), cls:"", d:d.router_port ? "port " + d.router_port : "router port unknown"},
+  ].map(k => `<div class="kpi ${k.cls}"><span class="accent"></span><div class="label">${k.l}</div><div class="v">${k.v}</div><div class="d">${k.d}</div></div>`).join("");
+  table($("#in-clients"), "iclient", [
+    {k:"proc", h:"Program", txt:1, v:r=>r.proc, f:r => `<span class="strong mono">${esc(r.proc)}</span>`},
+    {k:"connections", h:"Connections", r:1, v:r=>r.connections, f:r => int(r.connections)},
+    {k:"seconds", h:"Connected", r:1, v:r=>r.seconds, f:r => dur(r.seconds)},
+    {k:"last", h:"Last seen", v:r=>r.last, f:r => `<span class="muted">${ago(r.last)}</span>`},
+  ], d.router_clients);
+  table($("#in-peers"), "ipeer", [
+    {k:"remote", h:"Remote address", txt:1, v:r=>r.remote, f:r => `<span class="mono strong">${esc(r.remote)}</span> ${kindChip2(r.kind)}`},
+    {k:"proc", h:"Program reached", txt:1, v:r=>r.proc, f:r => `<span class="mono">${esc(r.proc)}</span> <span class="muted">:${r.port}</span>`},
+    {k:"connections", h:"Connections", r:1, v:r=>r.connections, f:r => int(r.connections)},
+    {k:"seconds", h:"Connected", r:1, v:r=>r.seconds, f:r => dur(r.seconds)},
+    {k:"last", h:"Last seen", v:r=>r.last, f:r => `<span class="muted">${ago(r.last)}</span>`},
+  ], d.peers);
+  table($("#in-listen"), "ilisten", [
+    {k:"proc", h:"Program", txt:1, v:r=>r.proc, f:r => `<span class="strong mono">${esc(r.proc)}</span> ${r.router ? chip("ok","router") : ""}`},
+    {k:"port", h:"Port", r:1, v:r=>r.port, f:r => String(r.port)},
+    {k:"exposed", h:"Reachable from", txt:1, v:r=>r.exposed ? 1 : 0, f:r => r.exposed ? chip("warn","network", r.address) + ` <span class="muted" style="font-size:11px">${esc(r.address)}</span>` : chip("ok","this PC only")},
+  ], d.listeners);
+  $("#in-caveat").textContent = d.caveat;
+}
+
+/* ---------- boot ---------- */
+$$("#flowmetric button").forEach(x => x.setAttribute("aria-pressed", x.dataset.m === state.flowMetric));
+syncControls(); load(); schedule(); if (state.tab === "risk") loadRisk(); if (state.tab === "controls") loadCtl(); if (state.tab === "egress") loadEgress(); if (state.tab === "inbound") loadInbound();
+</script>
+</body>
+</html>

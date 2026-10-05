@@ -2,10 +2,13 @@ from __future__ import annotations
 import asyncio, json, os, re, sqlite3, time, uuid
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 import httpx
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from dashboard import router as dashboard_router
+from attribution import client_hint, label_for, sanitize_label
+from control import router as control_router
 
 ROOT = Path(__file__).resolve().parent
 CONFIG_PATH = ROOT / "router_config.json"
@@ -28,26 +31,55 @@ def init_db() -> None:
             estimated_cost REAL, http_status INTEGER NOT NULL, success INTEGER NOT NULL,
             fallback_count INTEGER NOT NULL DEFAULT 0)""")
         columns = {row[1] for row in db.execute("PRAGMA table_info(telemetry)")}
-        for name in ("agent", "session_id", "project", "task_type", "request_has_stream", "upstream_content_type", "exception_class", "upstream_http_status", "request_has_tools", "request_has_tool_choice", "total_budget_ms", "budget_exhausted", "remaining_budget_ms", "attempted_models", "attempt_outcomes", "finish_reason", "requested_tier", "routing_reason", "routing_automatic"):
+        for name in ("agent", "session_id", "project", "task_type", "request_has_stream", "upstream_content_type", "exception_class", "upstream_http_status", "request_has_tools", "request_has_tool_choice", "total_budget_ms", "budget_exhausted", "remaining_budget_ms", "attempted_models", "attempt_outcomes", "finish_reason", "requested_tier", "routing_reason", "routing_automatic", "client_hint", "upstream_provider", "cached_tokens"):
             if name not in columns:
-                db.execute(f"ALTER TABLE telemetry ADD COLUMN {name} {'INTEGER' if name.startswith('request_has_') or name in ('budget_exhausted', 'routing_automatic') else 'REAL' if name.endswith('_ms') else 'TEXT'}")
+                db.execute(f"ALTER TABLE telemetry ADD COLUMN {name} {'INTEGER' if name.startswith('request_has_') or name in ('budget_exhausted', 'routing_automatic', 'cached_tokens') else 'REAL' if name.endswith('_ms') else 'TEXT'}")
         db.commit()
 
+def session_from(headers: Any) -> str | None:
+    """Conversation id when the client sends one. Never the content; length-capped and printable only."""
+    for name in ("x-openclaw-session", "x-session-id", "x-router-session"):
+        value = headers.get(name)
+        if isinstance(value, str) and value.strip():
+            return "".join(ch for ch in value.strip() if ch.isprintable())[:80] or None
+    return None
+
+def note_upstream(metadata: dict[str, Any], payload: Any, usage: Any) -> None:
+    """Which provider OpenRouter actually used and how many prompt tokens were served from cache."""
+    if not isinstance(payload, dict) or not isinstance(usage, dict):
+        return
+    provider = payload.get("provider")
+    if isinstance(provider, str) and provider.strip():
+        metadata["upstream_provider"] = provider.strip()[:60]
+    details = usage.get("prompt_tokens_details")
+    cached = details.get("cached_tokens") if isinstance(details, dict) else None
+    if isinstance(cached, int) and not isinstance(cached, bool):
+        metadata["cached_tokens"] = cached
+
+def is_loopback_url(value: str) -> bool:
+    try:
+        host = (urlparse(value).hostname or "").lower()
+    except ValueError:
+        return False
+    return host in ("127.0.0.1", "localhost", "::1")
+
 def record_telemetry(row: dict[str, Any]) -> None:
+    if row.get("upstream_provider") == "ollama" and row.get("estimated_cost") is None:
+        row["estimated_cost"] = 0.0  # local inference has no per-token bill
     row.setdefault("total_budget_ms", None); row.setdefault("budget_exhausted", None); row.setdefault("remaining_budget_ms", None)
     row.setdefault("attempted_models", None); row.setdefault("attempt_outcomes", None); row.setdefault("finish_reason", None)
-    row.setdefault("requested_tier", None); row.setdefault("routing_reason", None); row.setdefault("routing_automatic", None)
+    row.setdefault("requested_tier", None); row.setdefault("routing_reason", None); row.setdefault("routing_automatic", None); row.setdefault("client_hint", None); row.setdefault("upstream_provider", None); row.setdefault("cached_tokens", None)
     with sqlite3.connect(DB_PATH) as db:
         db.execute("""INSERT INTO telemetry
             (timestamp, request_id, selected_tier, actual_model, input_tokens,
             output_tokens, latency_ms, estimated_cost, http_status, success, fallback_count,
             agent, session_id, project, task_type, request_has_stream, upstream_content_type,
-            exception_class, upstream_http_status, request_has_tools, request_has_tool_choice, total_budget_ms, budget_exhausted, remaining_budget_ms, attempted_models, attempt_outcomes, finish_reason, requested_tier, routing_reason, routing_automatic)
+            exception_class, upstream_http_status, request_has_tools, request_has_tool_choice, total_budget_ms, budget_exhausted, remaining_budget_ms, attempted_models, attempt_outcomes, finish_reason, requested_tier, routing_reason, routing_automatic, client_hint, upstream_provider, cached_tokens)
             VALUES (:timestamp, :request_id, :selected_tier, :actual_model, :input_tokens,
                     :output_tokens, :latency_ms, :estimated_cost, :http_status, :success,
                     :fallback_count, :agent, :session_id, :project, :task_type, :request_has_stream,
                     :upstream_content_type, :exception_class, :upstream_http_status, :request_has_tools,
-                    :request_has_tool_choice, :total_budget_ms, :budget_exhausted, :remaining_budget_ms, :attempted_models, :attempt_outcomes, :finish_reason, :requested_tier, :routing_reason, :routing_automatic)""", row)
+                    :request_has_tool_choice, :total_budget_ms, :budget_exhausted, :remaining_budget_ms, :attempted_models, :attempt_outcomes, :finish_reason, :requested_tier, :routing_reason, :routing_automatic, :client_hint, :upstream_provider, :cached_tokens)""", row)
         db.commit()
 
 def api_key() -> str | None:
@@ -113,9 +145,10 @@ def select_tier(body: dict[str, Any]) -> tuple[Any, Any, str, bool, str | None]:
     attribution = (tag.strip() or None) if sep else prefix
     return base, base, "explicit_tier", False, attribution
 
-app = FastAPI(title="openclaw-router", version="0.1.0")
+app = FastAPI(title="Model Router", version="0.1.0")
 init_db()
 app.include_router(dashboard_router)
+app.include_router(control_router)
 
 @app.get("/health")
 async def health() -> dict[str, Any]:
@@ -129,7 +162,7 @@ async def health() -> dict[str, Any]:
 async def list_models() -> dict[str, Any]:
     created = int(time.time())
     return {"object": "list", "data": [
-        {"id": tier, "object": "model", "created": created, "owned_by": "openclaw-router"}
+        {"id": tier, "object": "model", "created": created, "owned_by": "model-router"}
         for tier in load_config()["tiers"]
     ]}
 
@@ -205,12 +238,17 @@ async def chat_completions(request: Request):
         """
         attempt_outcomes.append({"model": model, "outcome": outcome,
                                  "http_status": status_code, "exception": exception})
-    metadata = {"agent": request.headers.get("x-openclaw-agent"), "session_id": request.headers.get("x-openclaw-session"),
+    metadata = {"agent": request.headers.get("x-openclaw-agent"), "session_id": session_from(request.headers),
                 "project": request.headers.get("x-openclaw-project"), "task_type": request.headers.get("x-task-type")}
     try:
         body = await request.json()
         requested_tier, tier, routing_reason, routing_automatic, agent_tag = select_tier(body)
         if agent_tag: metadata["agent"] = agent_tag
+        # Which software sent this call is always recorded; it only becomes the caller label when the
+        # client names itself (X-Router-Client) or the operator mapped it in router_config.json.
+        metadata["client_hint"] = client_hint(request.headers)
+        if metadata.get("agent") is None:
+            metadata["agent"] = sanitize_label(request.headers.get("x-router-client")) or label_for(metadata["client_hint"], load_config().get("client_labels"))
         # Last resort, and deliberately ranked below both the "#tag" and the header: OpenHuman
         # sends a bare tier name ("balanced") with no identifying header, which otherwise lands
         # as one unattributed blob. Only that exact shape is labelled, so an explicit header on
@@ -231,11 +269,16 @@ async def chat_completions(request: Request):
         request_has_tool_choice = int("tool_choice" in body and body.get("tool_choice") is not None)
         cfg = load_config(); tier_cfg = cfg["tiers"].get(tier)
         if not tier_cfg: status = 400; return JSONResponse({"error":{"message":"model must be fast, balanced, or deep","type":"invalid_request_error"}}, status_code=status)
-        if tier_cfg.get("provider") != "openrouter": status = 500; return JSONResponse({"error":{"message":"unsupported provider","type":"configuration_error"}}, status_code=status)
-        key = api_key()
-        if not key: status = 503; return JSONResponse({"error":{"message":"OpenRouter API key is not configured","type":"configuration_error"}}, status_code=status)
+        if tier_cfg.get("provider") not in ("openrouter", "ollama"): status = 500; return JSONResponse({"error":{"message":"unsupported provider","type":"configuration_error"}}, status_code=status)
+        is_local = tier_cfg.get("provider") == "ollama"
+        local_cfg = cfg.get("ollama") if isinstance(cfg.get("ollama"), dict) else {}
+        local_base = str(local_cfg.get("base_url", "http://127.0.0.1:11434/v1")).rstrip("/")
+        # "Local" is a privacy claim: refuse to send anything off this machine under that label.
+        if is_local and not is_loopback_url(local_base): status = 500; return JSONResponse({"error":{"message":"ollama base_url must be a loopback address","type":"configuration_error"}}, status_code=status)
+        key = None if is_local else api_key()
+        if not is_local and not key: status = 503; return JSONResponse({"error":{"message":"OpenRouter API key is not configured","type":"configuration_error"}}, status_code=status)
         models = [tier_cfg["primary"], *tier_cfg.get("fallbacks", [])]; upstream_body = dict(body)
-        default_effort = {"fast": "none", "balanced": "minimal"}.get(tier)
+        default_effort = None if is_local else {"fast": "none", "balanced": "minimal"}.get(tier)
         if default_effort:
             reasoning = upstream_body.get("reasoning")
             if not isinstance(reasoning, dict):
@@ -246,7 +289,7 @@ async def chat_completions(request: Request):
         # while picking an endpoint. Merge under the client's own "provider" object so routing
         # hints survive, but the floor's keys win: a caller must not be able to route around it.
         policy = tier_cfg.get("provider_policy")
-        if isinstance(policy, dict) and policy:
+        if isinstance(policy, dict) and policy and not is_local:
             client_provider = upstream_body.get("provider")
             provider_opts = dict(client_provider) if isinstance(client_provider, dict) else {}
             provider_opts.update(policy)
@@ -259,9 +302,17 @@ async def chat_completions(request: Request):
             requested = upstream_body.get("max_tokens")
             if not isinstance(requested, int) or requested < floor:
                 upstream_body["max_tokens"] = floor
-        headers = {"Authorization":f"Bearer {key}","Content-Type":"application/json","HTTP-Referer":"http://127.0.0.1:6060","X-Title":"openclaw-router"}
-        url = cfg["openrouter"].get("base_url","https://openrouter.ai/api/v1").rstrip("/")+"/chat/completions"
-        timeout = cfg["openrouter"].get("timeout_seconds", 120)
+        if is_local:
+            # The client's own "provider" routing object means nothing to Ollama and must not be forwarded.
+            upstream_body.pop("provider", None)
+            headers = {"Content-Type":"application/json"}
+            url = local_base + "/chat/completions"
+            timeout = local_cfg.get("timeout_seconds", 300)
+            metadata["upstream_provider"] = "ollama"
+        else:
+            headers = {"Authorization":f"Bearer {key}","Content-Type":"application/json","HTTP-Referer":"http://127.0.0.1:6060","X-Title":"openclaw-router"}
+            url = cfg["openrouter"].get("base_url","https://openrouter.ai/api/v1").rstrip("/")+"/chat/completions"
+            timeout = cfg["openrouter"].get("timeout_seconds", 120)
         stream_client = None
         async with httpx.AsyncClient(timeout=timeout) as client:
             if not request_has_stream:
@@ -293,6 +344,7 @@ async def chat_completions(request: Request):
                     if 200 <= status < 300:
                         note_attempt(model, "served", status)
                         response = upstream.json(); usage = response.get("usage") or {}; input_tokens=usage.get("prompt_tokens"); output_tokens=usage.get("completion_tokens"); estimated_cost=usage.get("cost"); finish_reason=((response.get("choices") or [{}])[0] or {}).get("finish_reason"); success=True
+                        note_upstream(metadata, response, usage)
                         response["attempted_models"] = attempted_models
                         response["fallback_count"] = fallback_count
                         response["budget_exhausted"] = bool(budget_exhausted)
@@ -362,6 +414,7 @@ async def chat_completions(request: Request):
                     except (ValueError, json.JSONDecodeError):
                         return
                     usage = payload.get("usage") or {}
+                    note_upstream(metadata, payload, usage)
                     input_tokens = usage.get("prompt_tokens", input_tokens); output_tokens = usage.get("completion_tokens", output_tokens); estimated_cost = usage.get("cost", estimated_cost)
                     for choice in payload.get("choices") or []:
                         if choice.get("finish_reason"): finish_reason = choice["finish_reason"]
