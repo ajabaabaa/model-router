@@ -35,3 +35,13 @@ function Show-Msg($m) {
     Add-Type -AssemblyName System.Windows.Forms
     [void][System.Windows.Forms.MessageBox]::Show($m, "Model Router")
 }
+
+function Test-RouterStale {
+    # True when any code file is newer than the running router process, i.e. an update is not loaded yet.
+    try {
+        $c = Get-NetTCPConnection -LocalPort 6060 -State Listen -ErrorAction Stop | Select-Object -First 1
+        $started = (Get-Process -Id $c.OwningProcess -ErrorAction Stop).StartTime
+        $newest = Get-ChildItem -Path $Root -Filter *.py -File | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        return ($newest.LastWriteTime -gt $started)
+    } catch { return $false }
+}
