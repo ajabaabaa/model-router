@@ -14,7 +14,7 @@ import risk
 
 UNASSIGNED = "Unassigned"
 UNATTRIBUTED = "(unattributed)"
-PROGRAM_PREFIX = (("openhuman", "OpenHuman"), ("router-", "Router tests"), ("jev", "jev"))
+PROGRAM_PREFIX = (("openhuman", "OpenHuman"), ("router-test", "Router tests"))
 PROGRAM_OK = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._-]{0,29}$")
 
 
