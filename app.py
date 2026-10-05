@@ -257,6 +257,9 @@ async def chat_completions(request: Request):
         # Which software sent this call is always recorded; it only becomes the caller label when the
         # client names itself (X-Router-Client) or the operator mapped it in router_config.json.
         metadata["client_hint"] = client_hint(request.headers)
+        # True when the caller label is guessed from request shape (a bare tier name) rather than
+        # declared by the caller. A guessed label is for attribution only and must never re-route.
+        inferred_agent = False
         if metadata.get("agent") is None:
             metadata["agent"] = sanitize_label(request.headers.get("x-router-client")) or label_for(metadata["client_hint"], load_config().get("client_labels"))
         # Last resort, and deliberately ranked below both the "#tag" and the header: OpenHuman
@@ -267,6 +270,7 @@ async def chat_completions(request: Request):
             requested_model = body.get("model")
             if isinstance(requested_model, str) and "/" not in requested_model and "#" not in requested_model:
                 metadata["agent"] = "openhuman"
+                inferred_agent = True
         budget_header = request.headers.get("x-router-total-budget-ms")
         attempt_budget_header = request.headers.get("x-router-benchmark-attempt-budgets-ms")
         attempt_budgets = [float(x) / 1000 for x in attempt_budget_header.split(",") if x.strip()] if attempt_budget_header else None
@@ -278,7 +282,10 @@ async def chat_completions(request: Request):
         request_has_stream = int(body.get("stream") is True); request_has_tools = int(bool(body.get("tools")))
         request_has_tool_choice = int("tool_choice" in body and body.get("tool_choice") is not None)
         cfg = load_config()
-        owned = agent_route_for(cfg, metadata.get("agent"))
+        # A route owned by the calling agent wins over the model name the client sent - but only for a
+        # caller that actually identified itself. An inferred label (bare tier name, no header) must
+        # not re-route, or every anonymous {"model":"fast"} is hijacked by the inferred agent's route.
+        owned = None if inferred_agent else agent_route_for(cfg, metadata.get("agent"))
         if owned:
             tier, routing_reason, routing_automatic = owned, "agent_route", False
         elif tier not in cfg["tiers"] and cfg.get("default_route") in cfg["tiers"]:

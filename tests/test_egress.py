@@ -86,7 +86,7 @@ def test_hostile_strings_are_trimmed_to_printable_and_short(tmp_path):
 
 def test_endpoint_serves_the_view_and_rejects_unknown_windows(monkeypatch, tmp_path):
     log = write(tmp_path, [rec("node", "openrouter", 1, 0)])
-    act = tmp_path / "active.json"; act.write_text("﻿" + json.dumps({"at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "poll_seconds": 3, "active": []}))
+    act = tmp_path / "active.json"; act.write_text("﻿" + json.dumps({"at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "poll_seconds": 3, "active": []}), encoding="utf-8")
     monkeypatch.setattr(egress, "LOG_PATH", log); monkeypatch.setattr(egress, "ACTIVE_PATH", act)
     c = TestClient(app.app)
     d = c.get("/api/control/egress?window=all").json()

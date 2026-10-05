@@ -47,6 +47,7 @@ def env(monkeypatch, tmp_path):
     monkeypatch.setattr(catalog, "_fetch", lambda: RAW)
     monkeypatch.setitem(catalog._cache, "models", None); monkeypatch.setitem(catalog._cache, "at", 0.0)
     monkeypatch.delenv("OPENROUTER_KEY", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     return TestClient(app.app), path, tmp_path
 
 
